@@ -1,0 +1,107 @@
+@import "tailwindcss";
+
+@layer base {
+  html,
+  body,
+  #root {
+    background-color: #F8FAFC;
+    min-height: 100%;
+  }
+
+  .dark html,
+  .dark body,
+  .dark #root {
+    background-color: #0F172A;
+  }
+}
+
+/* =========================================================
+   DEDICATED POS THERMAL RECEIPT PRINTING STYLES (@media print)
+   Supports standard 80mm & 58mm thermal receipt roll printers
+   ========================================================= */
+@media print {
+  @page {
+    margin: 0mm;
+    size: auto;
+  }
+
+  /* Hide entire interactive app layout during printing */
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  #pharmpulse-app > *:not(#pos-thermal-print-area-wrapper),
+  header,
+  nav,
+  aside,
+  button,
+  .no-print {
+    display: none !important;
+    visibility: hidden !important;
+  }
+
+  /* Ensure the thermal print area is positioned cleanly at top-left */
+  #pos-thermal-print-area-wrapper {
+    display: block !important;
+    visibility: visible !important;
+    position: absolute !important;
+    left: 0 !important;
+    top: 0 !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
+    z-index: 999999 !important;
+  }
+
+  #pos-thermal-print-area {
+    display: block !important;
+    visibility: visible !important;
+    color: #000000 !important;
+    background: #ffffff !important;
+    font-family: 'Courier New', Courier, monospace, -apple-system, sans-serif !important;
+    font-size: 11px !important;
+    line-height: 1.25 !important;
+    margin: 0 auto !important;
+    padding: 4px 6px !important;
+    box-sizing: border-box !important;
+  }
+
+  #pos-thermal-print-area * {
+    visibility: visible !important;
+    color: #000000 !important;
+    background: transparent !important;
+    box-shadow: none !important;
+    text-shadow: none !important;
+    filter: none !important;
+  }
+
+  /* Paper roll width adaptations */
+  .thermal-80mm {
+    width: 78mm !important;
+    max-width: 320px !important;
+  }
+
+  .thermal-58mm {
+    width: 54mm !important;
+    max-width: 230px !important;
+    font-size: 9.5px !important;
+  }
+
+  .print-dashed-divider {
+    border-bottom: 1px dashed #000000 !important;
+    margin: 4px 0 !important;
+    height: 1px !important;
+  }
+
+  .print-solid-divider {
+    border-bottom: 1.5px solid #000000 !important;
+    margin: 4px 0 !important;
+    height: 1px !important;
+  }
+}

@@ -1,0 +1,1534 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PharmPulse Medical Store POS</title>
+  <style>
+    /* ==========================================================================
+       PharmPulse Design System - Deep Teal & Cyan Dark Palette
+       ========================================================================== */
+    :root {
+      --bg-base: #060e10;
+      --bg-surface: #0b1a1e;
+      --bg-card: #13292e;
+      --bg-card-hover: #173238;
+      --bg-input: #081417;
+      --border-color: #1a3439;
+      --border-focus: #3b8a82;
+
+      --teal-primary: #3b8a82;
+      --teal-light: #4ea89e;
+      --teal-bright: #2dd4bf;
+      --cyan-accent: #22d3ee;
+      --teal-glow: rgba(59, 138, 130, 0.2);
+
+      --text-main: #f1f5f9;
+      --text-muted: #94a3b8;
+      --text-dim: #5c7278;
+
+      --danger: #f43f5e;
+      --danger-bg: rgba(244, 63, 94, 0.15);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.15);
+      --warning: #f59e0b;
+
+      --radius-sm: 6px;
+      --radius-md: 10px;
+      --radius-lg: 14px;
+      --radius-xl: 20px;
+
+      --shadow-subtle: 0 4px 20px rgba(0, 0, 0, 0.4);
+      --shadow-card: 0 10px 30px -5px rgba(0, 0, 0, 0.5), 0 0 0 1px var(--border-color);
+      --font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-family);
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Background Aesthetics */
+    .ambient-light {
+      position: fixed;
+      width: 500px;
+      height: 500px;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+      filter: blur(120px);
+      opacity: 0.12;
+    }
+    .light-top-left {
+      top: -150px;
+      left: -150px;
+      background: var(--teal-bright);
+    }
+    .light-bottom-right {
+      bottom: -150px;
+      right: -150px;
+      background: var(--cyan-accent);
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Badges */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .badge-teal {
+      background: rgba(59, 138, 130, 0.2);
+      color: var(--teal-bright);
+      border: 1px solid rgba(45, 212, 191, 0.3);
+    }
+    .badge-cyan {
+      background: rgba(34, 211, 238, 0.15);
+      color: var(--cyan-accent);
+      border: 1px solid rgba(34, 211, 238, 0.3);
+    }
+    .badge-purple {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+    .badge-amber {
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+
+    /* ==========================================================================
+       SECTION 1: LOGIN VIEW
+       ========================================================================== */
+    #login-view {
+      position: relative;
+      z-index: 10;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 1.5rem;
+      width: 100%;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 2.25rem 2rem;
+      box-shadow: var(--shadow-card);
+      backdrop-filter: blur(12px);
+      animation: enterCard 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes enterCard {
+      from { opacity: 0; transform: scale(0.97) translateY(8px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .login-header {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .login-title {
+      font-size: 1.75rem;
+      font-weight: 900;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .login-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+      font-weight: 500;
+    }
+
+    /* Role Toggle */
+    .role-toggle-container {
+      display: flex;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 4px;
+      margin-bottom: 1.25rem;
+      gap: 4px;
+    }
+
+    .role-toggle-btn {
+      flex: 1;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.55rem 0.5rem;
+      border-radius: var(--radius-sm);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .role-toggle-btn.active {
+      background: var(--teal-primary);
+      color: #fff;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    /* Demo Quick-Test Presets */
+    .demo-box {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0.85rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .demo-header-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--teal-light);
+      margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .demo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+    .demo-grid.single-col {
+      grid-template-columns: 1fr;
+    }
+
+    .demo-card-btn {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+      cursor: pointer;
+      color: var(--text-main);
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+
+    .demo-card-btn:hover {
+      border-color: var(--teal-bright);
+      background: rgba(59, 138, 130, 0.15);
+      transform: translateY(-1px);
+    }
+
+    .demo-card-title {
+      font-size: 0.75rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .demo-card-sub {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      font-family: monospace;
+    }
+
+    /* Form Fields */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      margin-bottom: 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .form-input {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      border-radius: var(--radius-md);
+      padding: 0.75rem 0.9rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .form-input:focus {
+      border-color: var(--teal-bright);
+      box-shadow: 0 0 0 3px var(--teal-glow);
+    }
+
+    .form-input[readonly] {
+      background: rgba(8, 20, 23, 0.6);
+      color: var(--text-muted);
+      cursor: not-allowed;
+    }
+
+    .btn-submit {
+      width: 100%;
+      background: linear-gradient(135deg, var(--teal-primary), var(--teal-light));
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      box-shadow: 0 4px 15px rgba(59, 138, 130, 0.35);
+      transition: all 0.2s ease;
+      margin-top: 1.25rem;
+      font-family: inherit;
+    }
+
+    .btn-submit:hover {
+      background: linear-gradient(135deg, var(--teal-light), var(--teal-bright));
+      box-shadow: 0 6px 20px rgba(45, 212, 191, 0.4);
+    }
+
+    .btn-submit:active {
+      transform: scale(0.98);
+    }
+
+    .login-footer-links {
+      margin-top: 1.25rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+    }
+
+    .footer-action-link {
+      color: var(--text-muted);
+      background: none;
+      border: none;
+      cursor: pointer;
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: inherit;
+      transition: color 0.2s;
+    }
+
+    .footer-action-link:hover {
+      color: var(--teal-bright);
+    }
+
+    .login-bottom-info {
+      margin-top: 1.5rem;
+      font-size: 0.75rem;
+      color: var(--text-dim);
+      text-align: center;
+    }
+
+    /* ==========================================================================
+       SECTION 2: DASHBOARD VIEW
+       ========================================================================== */
+    #dashboard-view {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      min-height: 100dvh;
+      width: 100%;
+    }
+
+    /* Top App Header */
+    .dashboard-header {
+      background: var(--bg-surface);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0.85rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      position: sticky;
+      top: 0;
+      z-index: 50;
+      backdrop-filter: blur(12px);
+    }
+
+    .header-store-section {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .store-avatar {
+      width: 42px;
+      height: 42px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--teal-primary), var(--teal-bright));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.35rem;
+      color: #fff;
+      box-shadow: 0 4px 12px rgba(59, 138, 130, 0.4);
+    }
+
+    .store-name-text {
+      font-size: 1.05rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .store-meta-line {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      margin-top: 2px;
+    }
+
+    .header-user-section {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .user-tag {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      padding: 0.35rem 0.8rem;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    .btn-logout {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid rgba(244, 63, 94, 0.35);
+      padding: 0.45rem 0.95rem;
+      border-radius: var(--radius-md);
+      font-size: 0.8rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .btn-logout:hover {
+      background: rgba(244, 63, 94, 0.3);
+      border-color: var(--danger);
+      box-shadow: 0 2px 10px rgba(244, 63, 94, 0.2);
+    }
+
+    /* Navigation Tabs Bar */
+    .dashboard-nav {
+      background: var(--bg-base);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 1.5rem;
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .nav-tab {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      padding: 0.8rem 1.1rem;
+      font-size: 0.825rem;
+      font-weight: 700;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+
+    .nav-tab:hover {
+      color: var(--text-main);
+    }
+
+    .nav-tab.active {
+      color: var(--teal-bright);
+      border-bottom-color: var(--teal-bright);
+    }
+
+    /* Main Container */
+    .dashboard-body {
+      flex: 1;
+      padding: 1.5rem;
+      max-width: 1280px;
+      width: 100%;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    /* Inventory Control Bar */
+    .inventory-bar {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .inventory-title-group {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .inventory-title {
+      font-size: 1.15rem;
+      font-weight: 900;
+      color: #fff;
+    }
+
+    .search-box-wrapper {
+      position: relative;
+      flex: 1;
+      min-width: 280px;
+      max-width: 480px;
+    }
+
+    .search-input-field {
+      width: 100%;
+      background: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      padding: 0.65rem 1rem 0.65rem 2.4rem;
+      border-radius: var(--radius-md);
+      font-size: 0.85rem;
+      font-family: inherit;
+      outline: none;
+      transition: all 0.2s;
+    }
+
+    .search-input-field:focus {
+      border-color: var(--teal-bright);
+      box-shadow: 0 0 0 3px var(--teal-glow);
+    }
+
+    .search-icon-pos {
+      position: absolute;
+      left: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      font-size: 0.9rem;
+      color: var(--text-dim);
+      pointer-events: none;
+    }
+
+    /* Medicine Inventory List */
+    .medicine-catalog {
+      display: flex;
+      flex-direction: column;
+      gap: 0.75rem;
+    }
+
+    .med-item-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 1rem 1.25rem;
+      display: grid;
+      grid-template-columns: 1fr auto auto;
+      align-items: center;
+      gap: 1.25rem;
+      transition: all 0.2s;
+    }
+
+    .med-item-card:hover {
+      background: var(--bg-card-hover);
+      border-color: var(--border-focus);
+    }
+
+    @media (max-width: 768px) {
+      .med-item-card {
+        grid-template-columns: 1fr;
+        gap: 0.75rem;
+      }
+    }
+
+    .med-item-title-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .med-item-name {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .med-item-strength {
+      color: var(--teal-bright);
+      font-weight: 700;
+      font-size: 0.825rem;
+    }
+
+    .med-item-salt {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    .med-item-meta-tags {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 0.5rem;
+      font-size: 0.72rem;
+      color: var(--text-dim);
+      flex-wrap: wrap;
+    }
+
+    .meta-chip {
+      background: var(--bg-input);
+      padding: 2px 8px;
+      border-radius: 4px;
+      border: 1px solid var(--border-color);
+      color: var(--text-muted);
+    }
+    .meta-chip strong {
+      color: var(--text-main);
+    }
+
+    .med-item-pricing {
+      text-align: right;
+      min-width: 100px;
+    }
+
+    .med-item-price {
+      font-size: 1.15rem;
+      font-weight: 900;
+      color: #fff;
+    }
+
+    .med-item-stock {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* Add to Cart Controls */
+    .med-action-wrapper {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .btn-add-cart {
+      background: var(--teal-primary);
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 0.95rem;
+      font-size: 0.825rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+      transition: all 0.2s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    .btn-add-cart:hover:not(:disabled) {
+      background: var(--teal-light);
+      box-shadow: 0 2px 10px rgba(59, 138, 130, 0.4);
+    }
+
+    .btn-add-cart:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    .current-qty-badge {
+      font-size: 0.825rem;
+      font-weight: 800;
+      color: var(--teal-bright);
+      background: rgba(45, 212, 191, 0.15);
+      border: 1px solid rgba(45, 212, 191, 0.3);
+      padding: 0.35rem 0.65rem;
+      border-radius: var(--radius-sm);
+      min-width: 60px;
+      text-align: center;
+    }
+
+    /* App Static Footer */
+    .dashboard-footer {
+      background: var(--bg-surface);
+      border-top: 1px solid var(--border-color);
+      padding: 1rem 1.5rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: auto;
+    }
+
+    .footer-static-links {
+      display: flex;
+      gap: 1.25rem;
+    }
+
+    .footer-static-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+
+    .footer-static-links a:hover {
+      color: var(--teal-bright);
+    }
+
+    /* ==========================================================================
+       SECTION 3: TOAST NOTIFICATIONS (Bottom-Right)
+       ========================================================================== */
+    #toast-container {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      z-index: 99999;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      pointer-events: none;
+    }
+
+    .toast-item {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 0.85rem 1.2rem;
+      border-radius: var(--radius-md);
+      font-size: 0.825rem;
+      font-weight: 600;
+      box-shadow: var(--shadow-subtle);
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      min-width: 280px;
+      max-width: 380px;
+      pointer-events: auto;
+      animation: slideInToast 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      backdrop-filter: blur(12px);
+    }
+
+    .toast-success {
+      border-left: 4px solid var(--success);
+    }
+    .toast-error {
+      border-left: 4px solid var(--danger);
+    }
+    .toast-info {
+      border-left: 4px solid var(--teal-bright);
+    }
+
+    @keyframes slideInToast {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Ambient Glowing Aesthetics -->
+  <div class="ambient-light light-top-left"></div>
+  <div class="ambient-light light-bottom-right"></div>
+
+  <!-- Floating Toast Notifications System -->
+  <div id="toast-container"></div>
+
+  <!-- =========================================================================
+       VIEW 1: LOGIN SCREEN
+       ========================================================================= -->
+  <div id="login-view">
+    <div class="login-card">
+      <!-- Header -->
+      <div class="login-header">
+        <h1 class="login-title">
+          <span>💊 PharmPulse</span>
+          <span class="badge badge-teal">v3.4</span>
+        </h1>
+        <p class="login-subtitle">Medical Store Point‑of‑Sale Terminal</p>
+      </div>
+
+      <!-- Role Toggle Tabs -->
+      <div class="role-toggle-container">
+        <button type="button" id="toggle-role-store" class="role-toggle-btn active">
+          <span>🏪 Store Owner / Staff</span>
+        </button>
+        <button type="button" id="toggle-role-admin" class="role-toggle-btn">
+          <span>👑 Super Admin</span>
+        </button>
+      </div>
+
+      <!-- Demo Accounts Section -->
+      <div class="demo-box">
+        <div class="demo-header-title">
+          <span>⚡ Quick Test Accounts — Click to autofill</span>
+        </div>
+        
+        <!-- Store Role Demo Buttons -->
+        <div id="demo-store-grid" class="demo-grid">
+          <button type="button" class="demo-card-btn" id="demo-owner-btn">
+            <div class="demo-card-title">🛡️ Store Owner</div>
+            <div class="demo-card-sub">ID: STORE-101</div>
+          </button>
+          <button type="button" class="demo-card-btn" id="demo-staff-btn">
+            <div class="demo-card-title">👥 Staff Counter</div>
+            <div class="demo-card-sub">ID: STAFF-01</div>
+          </button>
+        </div>
+
+        <!-- Super Admin Demo Button -->
+        <div id="demo-admin-grid" class="demo-grid single-col hidden">
+          <button type="button" class="demo-card-btn" id="demo-admin-btn">
+            <div class="demo-card-title">👑 Super Admin Fleet Master</div>
+            <div class="demo-card-sub">admin@pharmpulse.com</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Login Form -->
+      <form id="login-form">
+        <!-- Store ID (Store Role) -->
+        <div class="form-group" id="group-store-id">
+          <label class="form-label" for="input-store-id">Store ID</label>
+          <div class="input-wrapper">
+            <input 
+              type="text" 
+              id="input-store-id" 
+              class="form-input" 
+              value="STORE-101" 
+              placeholder="e.g. STORE-101" 
+              required 
+              autocomplete="username"
+            />
+          </div>
+        </div>
+
+        <!-- Master Admin Email (Admin Role) -->
+        <div class="form-group hidden" id="group-admin-email">
+          <label class="form-label" for="input-admin-email">Master Admin Email</label>
+          <div class="input-wrapper">
+            <input 
+              type="email" 
+              id="input-admin-email" 
+              class="form-input" 
+              value="admin@pharmpulse.com" 
+              readonly
+            />
+          </div>
+        </div>
+
+        <!-- Password / PIN -->
+        <div class="form-group" id="group-password">
+          <label class="form-label" for="input-password" id="label-password">Password / PIN</label>
+          <div class="input-wrapper">
+            <input 
+              type="password" 
+              id="input-password" 
+              class="form-input" 
+              value="admin123" 
+              placeholder="Enter password or PIN" 
+              required 
+              autocomplete="current-password"
+            />
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button type="submit" id="btn-login-submit" class="btn-submit">
+          <span>🔐 Login to Store</span>
+          <span>→</span>
+        </button>
+      </form>
+
+      <!-- Footer Links -->
+      <div class="login-footer-links">
+        <button type="button" class="footer-action-link" id="link-register">+ Register New Medical Store</button>
+        <span class="footer-action-link" style="cursor: default;">Platform Master Admin</span>
+      </div>
+    </div>
+
+    <!-- Login Screen Bottom Info -->
+    <div class="login-bottom-info">
+      <span>PharmPulse Medical POS v3.4</span> · <span>Max 2 Synced Devices</span>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       VIEW 2: DASHBOARD VIEW (AUTHENTICATED)
+       ========================================================================= -->
+  <div id="dashboard-view" class="hidden">
+    <!-- Top Header -->
+    <header class="dashboard-header">
+      <div class="header-store-section">
+        <div class="store-avatar">💊</div>
+        <div>
+          <div class="store-name-text">
+            <span id="dash-store-title">Apex Medicos</span>
+            <span class="badge badge-teal">3 Synced</span>
+          </div>
+          <div class="store-meta-line">
+            <span class="badge badge-cyan">DL: DL-20B/104928-WB</span>
+            <span>•</span>
+            <span id="dash-live-clock" style="font-family: monospace;">00:00:00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-user-section">
+        <div class="user-tag">
+          <span id="dash-user-role" class="badge badge-teal">Owner</span>
+          <span id="dash-user-id" style="font-weight: 700; color: #fff;">STORE-101</span>
+        </div>
+        <!-- Functional Logout Button (Exit / Esc) -->
+        <button type="button" id="btn-exit-logout" class="btn-logout" title="Exit Store (or press Escape)">
+          <span>⏻</span>
+          <span>Exit</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Navigation Tabs -->
+    <nav class="dashboard-nav">
+      <button type="button" class="nav-tab active" data-tab-name="POS / New Sale">🧾 POS / New Sale</button>
+      <button type="button" class="nav-tab" data-tab-name="Fast Bill">⚡ Fast Bill</button>
+      <button type="button" class="nav-tab" data-tab-name="Inventory & Rack">📦 Inventory &amp; Rack</button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="dashboard-body">
+      <!-- Search & Catalog Header Bar -->
+      <section class="inventory-bar">
+        <div class="inventory-title-group">
+          <h2 class="inventory-title">Medicine Catalog</h2>
+          <span class="badge badge-teal" id="catalog-count-badge">10 Items</span>
+        </div>
+
+        <div class="search-box-wrapper">
+          <span class="search-icon-pos">🔍</span>
+          <input 
+            type="text" 
+            id="search-input-box" 
+            class="search-input-field" 
+            placeholder="Filter by name, salt, batch, or strength..." 
+          />
+        </div>
+      </section>
+
+      <!-- Medicine List (Exact 10 Sample Items) -->
+      <section class="medicine-catalog" id="medicine-catalog-list">
+        <!-- Dynamically rendered via JS -->
+      </section>
+    </main>
+
+    <!-- Static Footer -->
+    <footer class="dashboard-footer">
+      <div class="footer-static-links">
+        <a href="#pos">POS</a>
+        <a href="#inventory">Inventory</a>
+        <a href="#expiry">Expiry</a>
+        <a href="#sales">Sales</a>
+        <a href="#chat">Chat</a>
+        <a href="#preview">Preview</a>
+      </div>
+      <div>
+        <span>PharmPulse v3.4 · Secure Counter Terminal</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- =========================================================================
+       SECTION 4: INLINE VANILLA JAVASCRIPT LOGIC
+       ========================================================================= -->
+  <script>
+    (function () {
+      'use strict';
+
+      /* ------------------------------------------------------------------------
+         1. In-Memory Hard-Coded Credentials
+         ------------------------------------------------------------------------ */
+      const CREDENTIALS = [
+        {
+          id: 'STORE-101',
+          password: 'admin123',
+          role: 'Owner',
+          name: 'Rajesh Sharma',
+          storeName: 'Apex Medicos'
+        },
+        {
+          id: 'STAFF-01',
+          password: '1234',
+          role: 'Staff',
+          name: 'Rahul Verma',
+          storeName: 'Apex Medicos'
+        },
+        {
+          id: 'admin@pharmpulse.com',
+          password: 'superadmin',
+          role: 'Super Admin',
+          name: 'Fleet Master Admin',
+          storeName: 'PharmPulse Fleet'
+        }
+      ];
+
+      /* ------------------------------------------------------------------------
+         2. Exact 10 Sample Medicines Dataset
+         ------------------------------------------------------------------------ */
+      const MEDICINES = [
+        {
+          id: 'MED-1',
+          name: 'Dolo 650 Tablet',
+          strength: '650 mg',
+          form: 'Tablet',
+          salt: 'Paracetamol IP 650mg',
+          batch: 'DL-8821',
+          expiry: '12/27',
+          mrp: 34.00,
+          stock: 120,
+          rack: 'Rack A-1 Bin 01'
+        },
+        {
+          id: 'MED-2',
+          name: 'Crocin 650 Advance',
+          strength: '650 mg',
+          form: 'Tablet',
+          salt: 'Paracetamol IP 650mg',
+          batch: 'DL-8822',
+          expiry: '06/28',
+          mrp: 32.50,
+          stock: 85,
+          rack: 'Rack A-2 Bin 03'
+        },
+        {
+          id: 'MED-3',
+          name: 'Calpol 500 Plus',
+          strength: '500 mg',
+          form: 'Tablet',
+          salt: 'Paracetamol 500mg',
+          batch: 'DL-8823',
+          expiry: '09/27',
+          mrp: 28.75,
+          stock: 210,
+          rack: 'Rack B-1 Bin 02'
+        },
+        {
+          id: 'MED-4',
+          name: 'Augmentin 625 Duo',
+          strength: '625 mg',
+          form: 'Tablet',
+          salt: 'Amoxicillin + Clavulanate',
+          batch: 'DL-8824',
+          expiry: '03/28',
+          mrp: 156.00,
+          stock: 45,
+          rack: 'Rack C-3 Bin 05'
+        },
+        {
+          id: 'MED-5',
+          name: 'Azithral 500',
+          strength: '500 mg',
+          form: 'Tablet',
+          salt: 'Azithromycin 500mg',
+          batch: 'DL-8825',
+          expiry: '11/27',
+          mrp: 89.00,
+          stock: 62,
+          rack: 'Rack C-1 Bin 04'
+        },
+        {
+          id: 'MED-6',
+          name: 'Pantocid 40',
+          strength: '40 mg',
+          form: 'Tablet',
+          salt: 'Pantoprazole 40mg',
+          batch: 'DL-8826',
+          expiry: '08/28',
+          mrp: 45.25,
+          stock: 134,
+          rack: 'Rack D-2 Bin 01'
+        },
+        {
+          id: 'MED-7',
+          name: 'Ecosprin 75',
+          strength: '75 mg',
+          form: 'Tablet',
+          salt: 'Aspirin 75mg',
+          batch: 'DL-8827',
+          expiry: '02/28',
+          mrp: 12.50,
+          stock: 320,
+          rack: 'Rack E-1 Bin 03'
+        },
+        {
+          id: 'MED-8',
+          name: 'Glycomet 500 SR',
+          strength: '500 mg',
+          form: 'SR Tablet',
+          salt: 'Metformin 500mg',
+          batch: 'DL-8828',
+          expiry: '07/27',
+          mrp: 38.00,
+          stock: 97,
+          rack: 'Rack F-3 Bin 02'
+        },
+        {
+          id: 'MED-9',
+          name: 'Atorva 20',
+          strength: '20 mg',
+          form: 'Tablet',
+          salt: 'Atorvastatin 20mg',
+          batch: 'DL-8829',
+          expiry: '10/28',
+          mrp: 67.50,
+          stock: 78,
+          rack: 'Rack G-1 Bin 04'
+        },
+        {
+          id: 'MED-10',
+          name: 'Nexpro 40',
+          strength: '40 mg',
+          form: 'Capsule',
+          salt: 'Esomeprazole 40mg',
+          batch: 'DL-8830',
+          expiry: '05/28',
+          mrp: 52.00,
+          stock: 103,
+          rack: 'Rack D-1 Bin 02'
+        }
+      ];
+
+      // In-Memory Temporary Cart: { [medicineId]: quantity }
+      let cartState = {};
+
+      /* ------------------------------------------------------------------------
+         3. Session Storage & 30-Min Idle Timeout
+         ------------------------------------------------------------------------ */
+      const IDLE_LIMIT_MS = 30 * 60 * 1000; // 30 minutes
+      let idleTimer = null;
+
+      function resetIdleTimer() {
+        if (idleTimer) clearTimeout(idleTimer);
+        const user = getSession();
+        if (user) {
+          idleTimer = setTimeout(() => {
+            showToast('⚠️ Auto-logged out due to 30 minutes of inactivity.', 'error');
+            doLogout();
+          }, IDLE_LIMIT_MS);
+        }
+      }
+
+      ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+        window.addEventListener(evt, resetIdleTimer, { passive: true });
+      });
+
+      function getSession() {
+        try {
+          const raw = sessionStorage.getItem('pharmpulse_session');
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function setSession(user) {
+        sessionStorage.setItem('pharmpulse_session', JSON.stringify(user));
+        resetIdleTimer();
+      }
+
+      function clearSession() {
+        sessionStorage.removeItem('pharmpulse_session');
+        if (idleTimer) clearTimeout(idleTimer);
+      }
+
+      /* ------------------------------------------------------------------------
+         4. Toast Notifications System
+         ------------------------------------------------------------------------ */
+      function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `toast-item toast-${type}`;
+
+        const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+        toast.innerHTML = `<span>${icon}</span><span style="flex:1;">${message}</span>`;
+        container.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(10px)';
+          toast.style.transition = 'all 0.25s ease';
+          setTimeout(() => toast.remove(), 250);
+        }, 3200);
+      }
+
+      /* ------------------------------------------------------------------------
+         5. Role Switching & DOM Elements
+         ------------------------------------------------------------------------ */
+      let currentRoleMode = 'store'; // 'store' | 'admin'
+
+      const loginView = document.getElementById('login-view');
+      const dashboardView = document.getElementById('dashboard-view');
+      const toggleStoreBtn = document.getElementById('toggle-role-store');
+      const toggleAdminBtn = document.getElementById('toggle-role-admin');
+      const demoStoreGrid = document.getElementById('demo-store-grid');
+      const demoAdminGrid = document.getElementById('demo-admin-grid');
+      const groupStoreId = document.getElementById('group-store-id');
+      const groupAdminEmail = document.getElementById('group-admin-email');
+      const storeIdInput = document.getElementById('input-store-id');
+      const adminEmailInput = document.getElementById('input-admin-email');
+      const passwordInput = document.getElementById('input-password');
+      const labelPassword = document.getElementById('label-password');
+      const loginForm = document.getElementById('login-form');
+      const catalogList = document.getElementById('medicine-catalog-list');
+      const catalogCountBadge = document.getElementById('catalog-count-badge');
+      const searchInput = document.getElementById('search-input-box');
+      const exitBtn = document.getElementById('btn-exit-logout');
+
+      function switchRole(role) {
+        currentRoleMode = role;
+        if (role === 'store') {
+          toggleStoreBtn.classList.add('active');
+          toggleAdminBtn.classList.remove('active');
+          demoStoreGrid.classList.remove('hidden');
+          demoAdminGrid.classList.add('hidden');
+          groupStoreId.classList.remove('hidden');
+          groupAdminEmail.classList.add('hidden');
+          storeIdInput.value = 'STORE-101';
+          passwordInput.value = 'admin123';
+          labelPassword.textContent = 'Password / PIN';
+        } else {
+          toggleAdminBtn.classList.add('active');
+          toggleStoreBtn.classList.remove('active');
+          demoAdminGrid.classList.remove('hidden');
+          demoStoreGrid.classList.add('hidden');
+          groupStoreId.classList.add('hidden');
+          groupAdminEmail.classList.remove('hidden');
+          adminEmailInput.value = 'admin@pharmpulse.com';
+          passwordInput.value = 'superadmin';
+          labelPassword.textContent = 'Master Password';
+        }
+      }
+
+      toggleStoreBtn.addEventListener('click', () => switchRole('store'));
+      toggleAdminBtn.addEventListener('click', () => switchRole('admin'));
+
+      /* ------------------------------------------------------------------------
+         6. Demo Autofill and Auto-Submit with Visual Delay
+         ------------------------------------------------------------------------ */
+      function executeAutofillLogin(id, pass) {
+        if (currentRoleMode === 'store') {
+          storeIdInput.value = id;
+        } else {
+          adminEmailInput.value = id;
+        }
+        passwordInput.value = pass;
+
+        showToast(`⚡ Autofilling credentials for ${id}...`, 'info');
+
+        // Short visual delay before auto-submitting
+        setTimeout(() => {
+          attemptLogin(id, pass);
+        }, 400);
+      }
+
+      document.getElementById('demo-owner-btn').addEventListener('click', () => {
+        executeAutofillLogin('STORE-101', 'admin123');
+      });
+
+      document.getElementById('demo-staff-btn').addEventListener('click', () => {
+        executeAutofillLogin('STAFF-01', '1234');
+      });
+
+      document.getElementById('demo-admin-btn').addEventListener('click', () => {
+        executeAutofillLogin('admin@pharmpulse.com', 'superadmin');
+      });
+
+      /* ------------------------------------------------------------------------
+         7. Authentication Execution Logic
+         ------------------------------------------------------------------------ */
+      function attemptLogin(identifier, pass) {
+        const idClean = identifier.trim();
+        const passClean = pass.trim();
+
+        const match = CREDENTIALS.find(
+          u => u.id.toLowerCase() === idClean.toLowerCase() && u.password === passClean
+        );
+
+        if (match) {
+          setSession({
+            id: match.id,
+            role: match.role,
+            name: match.name,
+            storeName: match.storeName
+          });
+          renderApp();
+          showToast(`✅ Welcome, ${match.name}! Logged in as ${match.role}.`, 'success');
+        } else {
+          showToast('❌ Invalid Store ID or Password / PIN', 'error');
+        }
+      }
+
+      loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const idVal = currentRoleMode === 'store' ? storeIdInput.value : adminEmailInput.value;
+        const passVal = passwordInput.value;
+        attemptLogin(idVal, passVal);
+      });
+
+      /* ------------------------------------------------------------------------
+         8. Logout Logic (Exit Button & Escape Key)
+         ------------------------------------------------------------------------ */
+      function doLogout() {
+        clearSession();
+        cartState = {};
+        renderApp();
+        showToast('🚪 Logged out successfully. Terminal locked.', 'info');
+      }
+
+      exitBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to log out and lock this counter terminal?')) {
+          doLogout();
+        }
+      });
+
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const activeUser = getSession();
+          if (activeUser) {
+            if (confirm('Exit and logout from POS session? (Escape detected)')) {
+              doLogout();
+            }
+          }
+        }
+      });
+
+      /* ------------------------------------------------------------------------
+         9. Render Views & Medicine Inventory
+         ------------------------------------------------------------------------ */
+      function renderApp() {
+        const user = getSession();
+        if (user) {
+          loginView.classList.add('hidden');
+          dashboardView.classList.remove('hidden');
+
+          document.getElementById('dash-store-title').textContent = user.storeName || 'Apex Medicos';
+          document.getElementById('dash-user-id').textContent = user.id;
+          const roleBadge = document.getElementById('dash-user-role');
+          roleBadge.textContent = user.role;
+          roleBadge.className = `badge ${user.role === 'Super Admin' ? 'badge-purple' : user.role === 'Owner' ? 'badge-teal' : 'badge-cyan'}`;
+
+          renderMedicines();
+        } else {
+          dashboardView.classList.add('hidden');
+          loginView.classList.remove('hidden');
+        }
+      }
+
+      function renderMedicines(query = '') {
+        if (!catalogList) return;
+        const q = query.trim().toLowerCase();
+
+        const filtered = MEDICINES.filter(item => {
+          if (!q) return true;
+          return (
+            item.name.toLowerCase().includes(q) ||
+            item.salt.toLowerCase().includes(q) ||
+            item.batch.toLowerCase().includes(q) ||
+            item.strength.toLowerCase().includes(q)
+          );
+        });
+
+        catalogCountBadge.textContent = `${filtered.length} Items`;
+
+        if (filtered.length === 0) {
+          catalogList.innerHTML = `
+            <div style="text-align:center; padding: 2.5rem 0; color: var(--text-muted); font-size: 0.85rem;">
+              No medicines found matching "<strong>${query}</strong>"
+            </div>
+          `;
+          return;
+        }
+
+        catalogList.innerHTML = filtered.map(item => {
+          const inCart = cartState[item.id] || 0;
+          const availableStock = item.stock - inCart;
+
+          return `
+            <div class="med-item-card" id="med-card-${item.id}">
+              <div>
+                <div class="med-item-title-row">
+                  <span class="med-item-name">${item.name}</span>
+                  <span class="med-item-strength">${item.strength}</span>
+                  <span class="badge ${item.form === 'Tablet' ? 'badge-teal' : item.form === 'SR Tablet' ? 'badge-amber' : 'badge-purple'}">${item.form}</span>
+                </div>
+                <div class="med-item-salt">${item.salt}</div>
+                <div class="med-item-meta-tags">
+                  <span class="meta-chip">Batch: <strong>${item.batch}</strong></span>
+                  <span class="meta-chip">Exp: <strong>${item.expiry}</strong></span>
+                  <span class="meta-chip">Loc: <strong>${item.rack}</strong></span>
+                </div>
+              </div>
+
+              <div class="med-item-pricing">
+                <div class="med-item-price">₹${item.mrp.toFixed(2)}</div>
+                <div class="med-item-stock">
+                  ${availableStock > 0 ? `Stock: ${availableStock}` : '<span style="color:var(--danger);font-weight:bold;">Out of Stock</span>'}
+                </div>
+              </div>
+
+              <div class="med-action-wrapper">
+                <button 
+                  type="button" 
+                  class="btn-add-cart" 
+                  onclick="window.PharmPulseAdd('${item.id}')"
+                  ${availableStock <= 0 ? 'disabled' : ''}
+                >
+                  <span>+ + Add</span>
+                </button>
+                <span class="current-qty-badge">Qty: ${inCart}</span>
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      /* ------------------------------------------------------------------------
+         10. Add to Cart with Stock Limits
+         ------------------------------------------------------------------------ */
+      window.PharmPulseAdd = function (medId) {
+        const item = MEDICINES.find(m => m.id === medId);
+        if (!item) return;
+
+        const currentQty = cartState[medId] || 0;
+        if (currentQty >= item.stock) {
+          showToast(`❌ Cannot add more. Max stock limit (${item.stock}) reached for ${item.name}.`, 'error');
+          return;
+        }
+
+        cartState[medId] = currentQty + 1;
+        renderMedicines(searchInput.value || '');
+        showToast(`➕ Added 1 ${item.name} (Total: ${cartState[medId]})`, 'info');
+      };
+
+      /* ------------------------------------------------------------------------
+         11. Search Filtering & Navigation Tabs Interaction
+         ------------------------------------------------------------------------ */
+      searchInput.addEventListener('input', (e) => {
+        renderMedicines(e.target.value);
+      });
+
+      document.querySelectorAll('.nav-tab').forEach(tab => {
+        tab.addEventListener('click', () => {
+          document.querySelectorAll('.nav-tab').forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          const tabName = tab.getAttribute('data-tab-name') || tab.textContent.trim();
+          showToast(`Switched to "${tabName}" tab.`, 'info');
+        });
+      });
+
+      // Register link toast
+      document.getElementById('link-register').addEventListener('click', () => {
+        showToast('Registration portal — coming soon!', 'info');
+      });
+
+      // Live Header Clock
+      function updateLiveClock() {
+        const clockEl = document.getElementById('dash-live-clock');
+        if (clockEl) {
+          clockEl.textContent = new Date().toLocaleTimeString();
+        }
+      }
+      setInterval(updateLiveClock, 1000);
+      updateLiveClock();
+
+      /* ------------------------------------------------------------------------
+         12. Initial Application Bootstrap
+         ------------------------------------------------------------------------ */
+      renderApp();
+    })();
+  </script>
+</body>
+</html>

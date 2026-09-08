@@ -1,0 +1,1713 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>PharmPulse Medical Store POS</title>
+  <style>
+    /* ==========================================================================
+       PharmPulse Dark Theme Design System (Pure Embedded CSS)
+       Deep Teal / Slate / Cyan Aesthetics
+       ========================================================================== */
+    :root {
+      --bg-base: #030712;
+      --bg-surface: #0b1329;
+      --bg-surface-elevated: #111e38;
+      --bg-card: #0f172a;
+      --border-color: #1e293b;
+      --border-focus: #0d9488;
+      
+      --teal-500: #14b8a6;
+      --teal-600: #0d9488;
+      --teal-700: #0f766e;
+      --teal-glow: rgba(20, 184, 166, 0.15);
+      
+      --cyan-400: #22d3ee;
+      --cyan-500: #06b6d4;
+      
+      --text-primary: #f8fafc;
+      --text-secondary: #94a3b8;
+      --text-muted: #64748b;
+      
+      --danger: #f43f5e;
+      --danger-bg: rgba(244, 63, 94, 0.12);
+      --success: #10b981;
+      --success-bg: rgba(16, 185, 129, 0.12);
+      --warning: #f59e0b;
+      --warning-bg: rgba(245, 158, 11, 0.12);
+
+      --radius-sm: 8px;
+      --radius-md: 12px;
+      --radius-lg: 16px;
+      --radius-xl: 24px;
+      
+      --shadow-card: 0 10px 25px -5px rgba(0, 0, 0, 0.5), 0 8px 10px -6px rgba(0, 0, 0, 0.5);
+      --font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: var(--font-family);
+      background-color: var(--bg-base);
+      color: var(--text-primary);
+      min-height: 100vh;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      line-height: 1.5;
+      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* Ambient Glow Effects */
+    .ambient-glow {
+      position: fixed;
+      width: 400px;
+      height: 400px;
+      border-radius: 50%;
+      pointer-events: none;
+      z-index: 0;
+      filter: blur(90px);
+    }
+    .glow-1 {
+      top: -100px;
+      left: -100px;
+      background: rgba(13, 148, 136, 0.12);
+    }
+    .glow-2 {
+      bottom: -100px;
+      right: -100px;
+      background: rgba(6, 182, 212, 0.1);
+    }
+
+    /* Common Utility Classes */
+    .hidden {
+      display: none !important;
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 2px 8px;
+      border-radius: 9999px;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.03em;
+      text-transform: uppercase;
+    }
+    .badge-teal {
+      background: rgba(20, 184, 166, 0.15);
+      color: var(--teal-500);
+      border: 1px solid rgba(20, 184, 166, 0.3);
+    }
+    .badge-cyan {
+      background: rgba(6, 182, 212, 0.15);
+      color: var(--cyan-400);
+      border: 1px solid rgba(6, 182, 212, 0.3);
+    }
+    .badge-purple {
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+    }
+    .badge-warning {
+      background: var(--warning-bg);
+      color: var(--warning);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+    }
+    .badge-danger {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+    }
+
+    /* ==========================================================================
+       SECTION 1: LOGIN VIEW
+       ========================================================================== */
+    #login-view {
+      position: relative;
+      z-index: 10;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      align-items: center;
+      padding: 1.5rem;
+      width: 100%;
+    }
+
+    .login-card {
+      width: 100%;
+      max-width: 440px;
+      background: rgba(15, 23, 42, 0.95);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-xl);
+      padding: 2rem;
+      box-shadow: var(--shadow-card);
+      backdrop-filter: blur(16px);
+      animation: fadeIn 0.3s ease-out;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(8px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .brand-header {
+      text-align: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .brand-icon-wrapper {
+      width: 56px;
+      height: 56px;
+      margin: 0 auto 0.75rem;
+      background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
+      border-radius: var(--radius-lg);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.75rem;
+      box-shadow: 0 10px 20px -3px rgba(13, 148, 136, 0.4);
+      border: 2px solid rgba(20, 184, 166, 0.3);
+    }
+
+    .brand-title {
+      font-size: 1.75rem;
+      font-weight: 900;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .brand-subtitle {
+      font-size: 0.825rem;
+      color: var(--text-secondary);
+      margin-top: 0.35rem;
+      font-weight: 500;
+    }
+
+    /* Quick Test Demo Presets */
+    .demo-accounts-box {
+      background: rgba(30, 41, 59, 0.6);
+      border: 1px solid rgba(51, 65, 85, 0.8);
+      border-radius: var(--radius-md);
+      padding: 0.85rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .demo-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      margin-bottom: 0.6rem;
+    }
+
+    .demo-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0.5rem;
+    }
+
+    .btn-demo {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 0.6rem 0.75rem;
+      text-align: left;
+      cursor: pointer;
+      color: var(--text-primary);
+      transition: all 0.2s ease;
+    }
+
+    .btn-demo:hover {
+      border-color: var(--teal-500);
+      background: rgba(13, 148, 136, 0.1);
+    }
+
+    .btn-demo.active {
+      border-color: var(--teal-500);
+      background: rgba(13, 148, 136, 0.15);
+      box-shadow: 0 0 0 1px var(--teal-500);
+    }
+
+    .btn-demo-title {
+      font-size: 0.75rem;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 0.35rem;
+    }
+
+    .btn-demo-sub {
+      font-size: 0.68rem;
+      font-family: monospace;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* Login Form */
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+      margin-bottom: 0.35rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 12px;
+      font-size: 0.95rem;
+      color: var(--text-muted);
+      pointer-events: none;
+    }
+
+    .form-input {
+      width: 100%;
+      background: var(--bg-base);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      border-radius: var(--radius-md);
+      padding: 0.7rem 0.85rem 0.7rem 2.4rem;
+      font-size: 0.9rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .form-input:focus {
+      border-color: var(--teal-500);
+      box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
+    }
+
+    .toggle-password {
+      position: absolute;
+      right: 12px;
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 0.9rem;
+      padding: 4px;
+    }
+
+    .toggle-password:hover {
+      color: var(--text-primary);
+    }
+
+    .btn-primary {
+      width: 100%;
+      background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
+      font-size: 0.95rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+      box-shadow: 0 10px 20px -3px rgba(13, 148, 136, 0.4);
+      transition: transform 0.1s, opacity 0.2s, background 0.2s;
+      margin-top: 1.25rem;
+    }
+
+    .btn-primary:hover {
+      background: linear-gradient(135deg, var(--teal-500), #2dd4bf);
+    }
+
+    .btn-primary:active {
+      transform: scale(0.98);
+    }
+
+    .login-footer-links {
+      margin-top: 1.25rem;
+      padding-top: 1rem;
+      border-top: 1px solid var(--border-color);
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.75rem;
+    }
+
+    .footer-link {
+      color: var(--text-secondary);
+      text-decoration: none;
+      cursor: pointer;
+      background: none;
+      border: none;
+      font-size: 0.75rem;
+      font-weight: 600;
+      font-family: inherit;
+    }
+
+    .footer-link:hover {
+      color: var(--teal-500);
+    }
+
+    .login-bottom-info {
+      margin-top: 1.5rem;
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      text-align: center;
+    }
+
+    /* ==========================================================================
+       SECTION 2: DASHBOARD VIEW
+       ========================================================================== */
+    #dashboard-view {
+      position: relative;
+      z-index: 10;
+      display: flex;
+      flex-direction: column;
+      min-height: 100vh;
+      min-height: 100dvh;
+      width: 100%;
+    }
+
+    /* Top App Header */
+    .app-header {
+      background: rgba(15, 23, 42, 0.95);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      backdrop-filter: blur(12px);
+      position: sticky;
+      top: 0;
+      z-index: 50;
+    }
+
+    .header-left {
+      display: flex;
+      align-items: center;
+      gap: 0.85rem;
+    }
+
+    .store-badge-icon {
+      width: 38px;
+      height: 38px;
+      border-radius: var(--radius-md);
+      background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 1.25rem;
+      color: #fff;
+    }
+
+    .store-info-title {
+      font-size: 1rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .store-meta {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .header-right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .user-pill {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      padding: 0.35rem 0.75rem;
+      border-radius: 9999px;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.75rem;
+    }
+
+    .btn-exit {
+      background: var(--danger-bg);
+      color: var(--danger);
+      border: 1px solid rgba(244, 63, 94, 0.3);
+      padding: 0.45rem 0.9rem;
+      border-radius: var(--radius-md);
+      font-size: 0.78rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s ease;
+      font-family: inherit;
+    }
+
+    .btn-exit:hover {
+      background: rgba(244, 63, 94, 0.25);
+      border-color: var(--danger);
+    }
+
+    /* Navigation Bar */
+    .nav-tabs-bar {
+      background: rgba(11, 19, 41, 0.9);
+      border-bottom: 1px solid var(--border-color);
+      padding: 0 1.25rem;
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .nav-tab-btn {
+      background: none;
+      border: none;
+      color: var(--text-secondary);
+      padding: 0.75rem 1rem;
+      font-size: 0.825rem;
+      font-weight: 700;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      transition: all 0.2s;
+      font-family: inherit;
+    }
+
+    .nav-tab-btn:hover {
+      color: var(--text-primary);
+    }
+
+    .nav-tab-btn.active {
+      color: var(--teal-500);
+      border-bottom-color: var(--teal-500);
+    }
+
+    /* Main Dashboard Layout */
+    .dashboard-main {
+      flex: 1;
+      padding: 1.25rem;
+      max-width: 1300px;
+      width: 100%;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr 340px;
+      gap: 1.25rem;
+    }
+
+    @media (max-width: 960px) {
+      .dashboard-main {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Inventory & Search Panel */
+    .inventory-panel {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      gap: 1rem;
+    }
+
+    .inventory-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    .panel-title {
+      font-size: 1.1rem;
+      font-weight: 800;
+      color: #fff;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .search-input-wrapper {
+      position: relative;
+      flex: 1;
+      min-width: 260px;
+      max-width: 420px;
+    }
+
+    .search-input {
+      width: 100%;
+      background: var(--bg-base);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      padding: 0.6rem 0.85rem 0.6rem 2.2rem;
+      border-radius: var(--radius-md);
+      font-size: 0.85rem;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .search-input:focus {
+      border-color: var(--teal-500);
+    }
+
+    /* Medicine List Grid / Table */
+    .medicine-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+      max-height: 620px;
+      overflow-y: auto;
+      padding-right: 4px;
+    }
+
+    .medicine-list::-webkit-scrollbar {
+      width: 6px;
+    }
+    .medicine-list::-webkit-scrollbar-thumb {
+      background: var(--border-color);
+      border-radius: 4px;
+    }
+
+    .medicine-card {
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      padding: 0.85rem 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 1rem;
+      transition: border-color 0.2s, transform 0.1s;
+    }
+
+    .medicine-card:hover {
+      border-color: rgba(20, 184, 166, 0.4);
+    }
+
+    .med-main-info {
+      flex: 1;
+      min-width: 0;
+    }
+
+    .med-header-line {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .med-name {
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .med-strength {
+      color: var(--teal-500);
+      font-weight: 700;
+      font-size: 0.8rem;
+    }
+
+    .med-sub {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: 0.2rem;
+    }
+
+    .med-meta-tags {
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      margin-top: 0.4rem;
+      font-size: 0.72rem;
+      color: var(--text-muted);
+      flex-wrap: wrap;
+    }
+
+    .meta-tag {
+      background: rgba(30, 41, 59, 0.8);
+      padding: 2px 6px;
+      border-radius: 4px;
+      border: 1px solid rgba(51, 65, 85, 0.5);
+    }
+
+    .med-pricing-col {
+      text-align: right;
+      min-width: 90px;
+    }
+
+    .med-price {
+      font-size: 1.05rem;
+      font-weight: 900;
+      color: #fff;
+    }
+
+    .med-stock {
+      font-size: 0.72rem;
+      color: var(--text-secondary);
+      margin-top: 2px;
+    }
+
+    /* Add to Cart Stepper Button */
+    .cart-stepper {
+      display: flex;
+      align-items: center;
+      background: var(--bg-base);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-md);
+      overflow: hidden;
+    }
+
+    .btn-step {
+      background: transparent;
+      border: none;
+      color: var(--text-primary);
+      width: 32px;
+      height: 32px;
+      font-size: 1rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .btn-step:hover:not(:disabled) {
+      background: rgba(20, 184, 166, 0.2);
+      color: var(--teal-500);
+    }
+
+    .btn-step:disabled {
+      opacity: 0.3;
+      cursor: not-allowed;
+    }
+
+    .step-qty {
+      min-width: 28px;
+      text-align: center;
+      font-size: 0.85rem;
+      font-weight: 800;
+      color: #fff;
+    }
+
+    .btn-add-initial {
+      background: rgba(20, 184, 166, 0.15);
+      color: var(--teal-500);
+      border: 1px solid rgba(20, 184, 166, 0.4);
+      padding: 0.45rem 0.85rem;
+      border-radius: var(--radius-md);
+      font-size: 0.8rem;
+      font-weight: 800;
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: inherit;
+      white-space: nowrap;
+    }
+
+    .btn-add-initial:hover {
+      background: var(--teal-600);
+      color: #fff;
+    }
+
+    /* Cart Summary Sidebar */
+    .cart-sidebar {
+      background: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-lg);
+      padding: 1.25rem;
+      display: flex;
+      flex-direction: column;
+      height: fit-content;
+      position: sticky;
+      top: 75px;
+    }
+
+    .cart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-bottom: 0.85rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .cart-items-box {
+      margin: 1rem 0;
+      max-height: 320px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .cart-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: var(--bg-surface);
+      border: 1px solid var(--border-color);
+      border-radius: var(--radius-sm);
+      padding: 0.5rem 0.75rem;
+      font-size: 0.8rem;
+    }
+
+    .cart-row-title {
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .cart-row-price {
+      font-family: monospace;
+      color: var(--teal-500);
+      font-weight: 700;
+    }
+
+    .cart-empty-text {
+      text-align: center;
+      padding: 2rem 0;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }
+
+    .cart-total-box {
+      border-top: 1px solid var(--border-color);
+      padding-top: 0.85rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      margin-bottom: 1rem;
+    }
+
+    .cart-total-label {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--text-secondary);
+    }
+
+    .cart-total-amt {
+      font-size: 1.35rem;
+      font-weight: 900;
+      color: var(--teal-500);
+    }
+
+    .btn-checkout {
+      width: 100%;
+      background: linear-gradient(135deg, var(--teal-600), var(--teal-500));
+      color: #fff;
+      border: none;
+      border-radius: var(--radius-md);
+      padding: 0.8rem;
+      font-size: 0.9rem;
+      font-weight: 800;
+      cursor: pointer;
+      font-family: inherit;
+      box-shadow: 0 4px 12px rgba(13, 148, 136, 0.3);
+      transition: all 0.2s;
+    }
+
+    .btn-checkout:hover:not(:disabled) {
+      background: linear-gradient(135deg, var(--teal-500), #2dd4bf);
+    }
+
+    .btn-checkout:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    /* App Footer Bar */
+    .app-footer {
+      background: rgba(11, 19, 41, 0.95);
+      border-top: 1px solid var(--border-color);
+      padding: 0.75rem 1.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      margin-top: auto;
+    }
+
+    .footer-nav {
+      display: flex;
+      gap: 1rem;
+    }
+
+    .footer-nav a {
+      color: var(--text-secondary);
+      text-decoration: none;
+      font-weight: 600;
+      transition: color 0.2s;
+    }
+
+    .footer-nav a:hover {
+      color: var(--teal-500);
+    }
+
+    /* ==========================================================================
+       SECTION 3: TOAST SYSTEM (Bottom Right Floating)
+       ========================================================================== */
+    #toast-container {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      z-index: 9999;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: rgba(15, 23, 42, 0.96);
+      border: 1px solid var(--border-color);
+      color: #fff;
+      padding: 0.75rem 1.1rem;
+      border-radius: var(--radius-md);
+      font-size: 0.825rem;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.5);
+      display: flex;
+      align-items: center;
+      gap: 0.6rem;
+      min-width: 260px;
+      max-width: 360px;
+      pointer-events: auto;
+      animation: slideToast 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      backdrop-filter: blur(12px);
+    }
+
+    .toast-success {
+      border-left: 4px solid var(--success);
+    }
+    .toast-error {
+      border-left: 4px solid var(--danger);
+    }
+    .toast-info {
+      border-left: 4px solid var(--teal-500);
+    }
+
+    @keyframes slideToast {
+      from { transform: translateX(100%); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    .toast-icon {
+      font-size: 1.1rem;
+    }
+
+    /* Inactivity Notice Modal/Banner */
+    .idle-warning {
+      position: fixed;
+      top: 15px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(245, 158, 11, 0.95);
+      color: #000;
+      padding: 0.5rem 1.25rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 800;
+      z-index: 10000;
+      box-shadow: 0 4px 15px rgba(245, 158, 11, 0.4);
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Background Ambient Glows -->
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+
+  <!-- Toast Notification Container -->
+  <div id="toast-container"></div>
+
+  <!-- =========================================================================
+       VIEW 1: LOGIN SCREEN
+       ========================================================================= -->
+  <div id="login-view">
+    <div class="login-card">
+      <!-- Brand Header -->
+      <div class="brand-header">
+        <div class="brand-icon-wrapper">💊</div>
+        <div class="brand-title">
+          <span>PharmPulse</span>
+          <span class="badge badge-teal">v3.4 POS</span>
+        </div>
+        <p class="brand-subtitle">Medical Store POS Login – Enter Store ID &amp; Password/PIN</p>
+      </div>
+
+      <!-- Quick-Test Demo Accounts -->
+      <div class="demo-accounts-box">
+        <div class="demo-header">
+          <span>⚡ Demo Quick-Test Accounts</span>
+          <span style="color: var(--text-muted);">Click to Autofill</span>
+        </div>
+        <div class="demo-grid">
+          <button type="button" class="btn-demo active" id="demo-owner-btn">
+            <div class="btn-demo-title">🛡️ Store Owner</div>
+            <div class="btn-demo-sub">ID: STORE-101</div>
+          </button>
+          <button type="button" class="btn-demo" id="demo-staff-btn">
+            <div class="btn-demo-title">👥 Staff Counter</div>
+            <div class="btn-demo-sub">ID: STAFF-01</div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Login Form -->
+      <form id="login-form">
+        <div class="form-group">
+          <label class="form-label" for="input-store-id">Store ID / Terminal Code</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🏪</span>
+            <input 
+              type="text" 
+              id="input-store-id" 
+              class="form-input" 
+              value="STORE-101" 
+              placeholder="e.g. STORE-101" 
+              required 
+              autocomplete="username"
+            />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="input-password">Password / 4-Digit PIN</label>
+          <div class="input-wrapper">
+            <span class="input-icon">🔒</span>
+            <input 
+              type="password" 
+              id="input-password" 
+              class="form-input" 
+              value="admin123" 
+              placeholder="Enter password or PIN" 
+              required 
+              autocomplete="current-password"
+            />
+            <button type="button" id="btn-toggle-pwd" class="toggle-password" title="Toggle password visibility">👁️</button>
+          </div>
+        </div>
+
+        <button type="submit" id="btn-login-submit" class="btn-primary">
+          <span>Login to Store</span>
+          <span>→</span>
+        </button>
+      </form>
+
+      <!-- Footer Links -->
+      <div class="login-footer-links">
+        <button type="button" class="footer-link" id="link-register">+ Register New Pharmacy</button>
+        <button type="button" class="footer-link" id="link-super-admin">Platform Master Admin</button>
+      </div>
+    </div>
+
+    <!-- Login Footer Info -->
+    <div class="login-bottom-info">
+      <span>PharmPulse Medical POS v3.4</span> · <span>Max 2 Synced Devices</span>
+    </div>
+  </div>
+
+  <!-- =========================================================================
+       VIEW 2: DASHBOARD VIEW (AFTER AUTHENTICATION)
+       ========================================================================= -->
+  <div id="dashboard-view" class="hidden">
+    <!-- Top Header -->
+    <header class="app-header">
+      <div class="header-left">
+        <div class="store-badge-icon">💊</div>
+        <div>
+          <div class="store-info-title">
+            <span id="dash-store-name">Apex Medicos</span>
+            <span class="badge badge-teal">3 Synced</span>
+          </div>
+          <div class="store-meta">
+            <span>DL: 20B/104928-WB</span>
+            <span>•</span>
+            <span id="session-clock" style="font-family: monospace;">00:00:00</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="header-right">
+        <div class="user-pill">
+          <span id="user-role-badge" class="badge badge-teal">Owner</span>
+          <span id="user-id-display" style="font-weight: 700; color: #fff;">STORE-101</span>
+        </div>
+        <!-- Functional Logout Button (Exit / Esc) -->
+        <button type="button" id="btn-logout" class="btn-exit" title="Logout & Lock Terminal (or press Esc)">
+          <span>🚪</span>
+          <span>Exit</span>
+        </button>
+      </div>
+    </header>
+
+    <!-- Visual Navigation Tabs -->
+    <nav class="nav-tabs-bar">
+      <button type="button" class="nav-tab-btn active" data-tab="pos">⚡ POS / New Sale</button>
+      <button type="button" class="nav-tab-btn" data-tab="fastbill">🧾 Fast Bill</button>
+      <button type="button" class="nav-tab-btn" data-tab="inventory">📦 Inventory &amp; Rack</button>
+    </nav>
+
+    <!-- Main Content Area -->
+    <main class="dashboard-main">
+      <!-- Left: Medicine Inventory & Search List -->
+      <section class="inventory-panel">
+        <div class="inventory-header">
+          <div class="panel-title">
+            <span>💊 Medicine Catalog</span>
+            <span class="badge badge-cyan" id="med-count-badge">10 Items</span>
+          </div>
+          <div class="search-input-wrapper">
+            <span class="input-icon">🔍</span>
+            <input 
+              type="text" 
+              id="search-input" 
+              class="search-input" 
+              placeholder="Search medicine, salt, batch or strength..." 
+            />
+          </div>
+        </div>
+
+        <!-- Scrollable Medicine List -->
+        <div class="medicine-list" id="medicine-list-container">
+          <!-- Dynamically populated via JavaScript -->
+        </div>
+      </section>
+
+      <!-- Right: Live POS Cart Summary -->
+      <aside class="cart-sidebar">
+        <div class="cart-header">
+          <div style="font-weight: 800; font-size: 1rem; color: #fff;">🛒 Current Sale</div>
+          <button type="button" id="btn-clear-cart" class="footer-link" style="color: var(--danger); font-size: 0.72rem;">Clear All</button>
+        </div>
+
+        <div class="cart-items-box" id="cart-items-container">
+          <div class="cart-empty-text">No medicines added to bill yet. Click "+ Add" on any item.</div>
+        </div>
+
+        <div class="cart-total-box">
+          <span class="cart-total-label">Total Amount</span>
+          <span class="cart-total-amt" id="cart-total-display">₹0.00</span>
+        </div>
+
+        <button type="button" id="btn-checkout" class="btn-checkout" disabled>
+          <span>Print &amp; Finalize Bill (F9)</span>
+        </button>
+      </aside>
+    </main>
+
+    <!-- App Bottom Footer -->
+    <footer class="app-footer">
+      <div class="footer-nav">
+        <a href="#pos" class="footer-tab-link">POS</a>
+        <a href="#inventory" class="footer-tab-link">Inventory</a>
+        <a href="#expiry" class="footer-tab-link">Expiry Alerts</a>
+        <a href="#sales" class="footer-tab-link">Sales History</a>
+        <a href="#chat" class="footer-tab-link">Counter Chat</a>
+        <a href="#preview" class="footer-tab-link">Preview</a>
+      </div>
+      <div>
+        <span>PharmPulse v3.4</span> · <span>Secure Pharmacy Terminal</span>
+      </div>
+    </footer>
+  </div>
+
+  <!-- =========================================================================
+       SECTION 4: EMBEDDED VANILLA JAVASCRIPT LOGIC
+       ========================================================================= -->
+  <script>
+    (function () {
+      'use strict';
+
+      /* ------------------------------------------------------------------------
+         1. In-Memory Mock Database & Credentials
+         ------------------------------------------------------------------------ */
+      const VALID_USERS = [
+        {
+          id: 'STORE-101',
+          password: 'admin123',
+          role: 'Owner',
+          name: 'Rajesh Sharma',
+          storeName: 'Apex Medicos & Healthcare'
+        },
+        {
+          id: 'STAFF-01',
+          password: '1234',
+          role: 'Staff',
+          name: 'Rahul Verma (Cashier)',
+          storeName: 'Apex Medicos & Healthcare'
+        }
+      ];
+
+      // 10 Sample Medicines with full clinical and inventory details
+      const SAMPLE_MEDICINES = [
+        {
+          id: 'MED-001',
+          name: 'Augmentin 625 Duo',
+          strength: '625 mg',
+          form: 'Tablet',
+          salt: 'Amoxycillin (500mg) + Clavulanic Acid (125mg)',
+          batch: 'AG2026-X',
+          expiry: '11/2027',
+          mrp: 204.50,
+          rack: 'RACK-A1',
+          stock: 45
+        },
+        {
+          id: 'MED-002',
+          name: 'Dolo 650',
+          strength: '650 mg',
+          form: 'Tablet',
+          salt: 'Paracetamol IP',
+          batch: 'DL-994',
+          expiry: '08/2028',
+          mrp: 32.00,
+          rack: 'RACK-B2',
+          stock: 150
+        },
+        {
+          id: 'MED-003',
+          name: 'Pan-D Capsule',
+          strength: '40 mg / 30 mg',
+          form: 'Capsule',
+          salt: 'Pantoprazole (40mg) + Domperidone (30mg)',
+          batch: 'PND-441',
+          expiry: '04/2027',
+          mrp: 198.00,
+          rack: 'RACK-A3',
+          stock: 60
+        },
+        {
+          id: 'MED-004',
+          name: 'Azithral 500',
+          strength: '500 mg',
+          form: 'Tablet',
+          salt: 'Azithromycin IP',
+          batch: 'AZ-1102',
+          expiry: '01/2027',
+          mrp: 135.20,
+          rack: 'RACK-C1',
+          stock: 30
+        },
+        {
+          id: 'MED-005',
+          name: 'Montair-LC',
+          strength: '10 mg / 5 mg',
+          form: 'Tablet',
+          salt: 'Montelukast (10mg) + Levocetirizine (5mg)',
+          batch: 'MLC-889',
+          expiry: '06/2027',
+          mrp: 184.00,
+          rack: 'RACK-B1',
+          stock: 80
+        },
+        {
+          id: 'MED-006',
+          name: 'Telma 40',
+          strength: '40 mg',
+          form: 'Tablet',
+          salt: 'Telmisartan IP',
+          batch: 'TLM-301',
+          expiry: '12/2027',
+          mrp: 142.50,
+          rack: 'RACK-D2',
+          stock: 90
+        },
+        {
+          id: 'MED-007',
+          name: 'Glycomet-GP 2 Forte',
+          strength: '2 mg / 1000 mg',
+          form: 'Tablet',
+          salt: 'Glimepiride + Metformin SR',
+          batch: 'GLY-773',
+          expiry: '09/2026',
+          mrp: 235.00,
+          rack: 'RACK-D1',
+          stock: 25
+        },
+        {
+          id: 'MED-008',
+          name: 'Ascoril D Plus Syrup',
+          strength: '100 ml',
+          form: 'Syrup',
+          salt: 'Dextromethorphan + Phenylephrine + CPM',
+          batch: 'ASC-552',
+          expiry: '03/2027',
+          mrp: 128.00,
+          rack: 'RACK-SYR1',
+          stock: 40
+        },
+        {
+          id: 'MED-009',
+          name: 'Shelcal 500',
+          strength: '500 mg',
+          form: 'Tablet',
+          salt: 'Calcium Carbonate + Vitamin D3',
+          batch: 'SHL-202',
+          expiry: '05/2028',
+          mrp: 119.00,
+          rack: 'RACK-NUTR1',
+          stock: 110
+        },
+        {
+          id: 'MED-010',
+          name: 'Betadine 10% Ointment',
+          strength: '20 g',
+          form: 'Ointment',
+          salt: 'Povidone-Iodine IP 10% w/w',
+          batch: 'BET-901',
+          expiry: '10/2026',
+          mrp: 85.00,
+          rack: 'RACK-OINT2',
+          stock: 50
+        }
+      ];
+
+      // In-Memory Temporary Cart: { [medicineId]: quantity }
+      let activeCart = {};
+
+      /* ------------------------------------------------------------------------
+         2. Session & Idle Timeout Management (30 Minutes Inactivity)
+         ------------------------------------------------------------------------ */
+      const IDLE_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+      let idleTimer = null;
+
+      function resetIdleTimer() {
+        if (idleTimer) clearTimeout(idleTimer);
+        const currentUser = getSessionUser();
+        if (currentUser) {
+          idleTimer = setTimeout(() => {
+            showToast('⚠️ Auto-logged out due to 30 minutes of inactivity.', 'error');
+            performLogout();
+          }, IDLE_TIMEOUT_MS);
+        }
+      }
+
+      // Attach activity listeners to window to reset idle timer
+      ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll'].forEach(evt => {
+        window.addEventListener(evt, resetIdleTimer, { passive: true });
+      });
+
+      function getSessionUser() {
+        try {
+          const raw = sessionStorage.getItem('pharmpulse_session_user');
+          return raw ? JSON.parse(raw) : null;
+        } catch (e) {
+          return null;
+        }
+      }
+
+      function setSessionUser(user) {
+        sessionStorage.setItem('pharmpulse_session_user', JSON.stringify(user));
+        resetIdleTimer();
+      }
+
+      function clearSessionUser() {
+        sessionStorage.removeItem('pharmpulse_session_user');
+        if (idleTimer) clearTimeout(idleTimer);
+      }
+
+      /* ------------------------------------------------------------------------
+         3. Toast Notification Helper
+         ------------------------------------------------------------------------ */
+      function showToast(message, type = 'info') {
+        const container = document.getElementById('toast-container');
+        if (!container) return;
+
+        const toast = document.createElement('div');
+        toast.className = `toast toast-${type}`;
+
+        const icon = type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️';
+        toast.innerHTML = `
+          <span class="toast-icon">${icon}</span>
+          <span style="flex:1;">${message}</span>
+        `;
+
+        container.appendChild(toast);
+
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(10px)';
+          toast.style.transition = 'all 0.3s ease';
+          setTimeout(() => toast.remove(), 300);
+        }, 3200);
+      }
+
+      /* ------------------------------------------------------------------------
+         4. UI Rendering Functions
+         ------------------------------------------------------------------------ */
+      const loginView = document.getElementById('login-view');
+      const dashboardView = document.getElementById('dashboard-view');
+      const medContainer = document.getElementById('medicine-list-container');
+      const cartContainer = document.getElementById('cart-items-container');
+      const cartTotalDisplay = document.getElementById('cart-total-display');
+      const checkoutBtn = document.getElementById('btn-checkout');
+      const searchInput = document.getElementById('search-input');
+      const medCountBadge = document.getElementById('med-count-badge');
+
+      function renderApp() {
+        const user = getSessionUser();
+        if (user) {
+          // Show Dashboard
+          loginView.classList.add('hidden');
+          dashboardView.classList.remove('hidden');
+
+          // Update header info
+          document.getElementById('dash-store-name').textContent = user.storeName || 'Apex Medicos';
+          document.getElementById('user-id-display').textContent = user.id;
+          const roleBadge = document.getElementById('user-role-badge');
+          roleBadge.textContent = user.role;
+          roleBadge.className = `badge ${user.role === 'Owner' ? 'badge-teal' : 'badge-cyan'}`;
+
+          renderMedicineList();
+          renderCart();
+        } else {
+          // Show Login
+          dashboardView.classList.add('hidden');
+          loginView.classList.remove('hidden');
+          activeCart = {};
+        }
+      }
+
+      function renderMedicineList(query = '') {
+        if (!medContainer) return;
+        const q = query.trim().toLowerCase();
+
+        const filtered = SAMPLE_MEDICINES.filter(item => {
+          if (!q) return true;
+          return (
+            item.name.toLowerCase().includes(q) ||
+            item.salt.toLowerCase().includes(q) ||
+            item.batch.toLowerCase().includes(q) ||
+            item.strength.toLowerCase().includes(q) ||
+            item.rack.toLowerCase().includes(q)
+          );
+        });
+
+        medCountBadge.textContent = `${filtered.length} Items`;
+
+        if (filtered.length === 0) {
+          medContainer.innerHTML = `
+            <div style="text-align:center; padding: 2rem 0; color: var(--text-muted); font-size: 0.85rem;">
+              No medicines match "<strong>${query}</strong>"
+            </div>
+          `;
+          return;
+        }
+
+        medContainer.innerHTML = filtered.map(item => {
+          const inCartQty = activeCart[item.id] || 0;
+          const remainingStock = item.stock - inCartQty;
+
+          let actionHtml = '';
+          if (inCartQty > 0) {
+            actionHtml = `
+              <div class="cart-stepper">
+                <button type="button" class="btn-step" onclick="window.PharmPulse.changeQty('${item.id}', -1)" title="Decrease Qty">−</button>
+                <span class="step-qty">${inCartQty}</span>
+                <button type="button" class="btn-step" onclick="window.PharmPulse.changeQty('${item.id}', 1)" ${remainingStock <= 0 ? 'disabled' : ''} title="Increase Qty">+</button>
+              </div>
+            `;
+          } else {
+            actionHtml = `
+              <button 
+                type="button" 
+                class="btn-add-initial" 
+                onclick="window.PharmPulse.changeQty('${item.id}', 1)"
+                ${item.stock <= 0 ? 'disabled' : ''}
+              >
+                + Add
+              </button>
+            `;
+          }
+
+          return `
+            <div class="medicine-card" id="med-card-${item.id}">
+              <div class="med-main-info">
+                <div class="med-header-line">
+                  <span class="med-name">${item.name}</span>
+                  <span class="med-strength">${item.strength}</span>
+                  <span class="badge ${item.form === 'Tablet' ? 'badge-teal' : item.form === 'Capsule' ? 'badge-cyan' : 'badge-purple'}">${item.form}</span>
+                </div>
+                <div class="med-sub">${item.salt}</div>
+                <div class="med-meta-tags">
+                  <span class="meta-tag">Batch: <strong>${item.batch}</strong></span>
+                  <span class="meta-tag">Exp: <strong>${item.expiry}</strong></span>
+                  <span class="meta-tag">Rack: <strong>${item.rack}</strong></span>
+                </div>
+              </div>
+
+              <div class="med-pricing-col">
+                <div class="med-price">₹${item.mrp.toFixed(2)}</div>
+                <div class="med-stock ${remainingStock < 10 ? 'badge-danger' : ''}">
+                  ${remainingStock > 0 ? `Stock: ${remainingStock}` : '<span style="color:var(--danger);font-weight:bold;">Out of Stock</span>'}
+                </div>
+              </div>
+
+              <div>
+                ${actionHtml}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+
+      function renderCart() {
+        if (!cartContainer || !cartTotalDisplay) return;
+
+        const cartItemIds = Object.keys(activeCart).filter(id => activeCart[id] > 0);
+        let totalAmount = 0;
+
+        if (cartItemIds.length === 0) {
+          cartContainer.innerHTML = `<div class="cart-empty-text">No medicines added to bill yet. Click "+ Add" on any item.</div>`;
+          cartTotalDisplay.textContent = '₹0.00';
+          checkoutBtn.disabled = true;
+          return;
+        }
+
+        cartContainer.innerHTML = cartItemIds.map(id => {
+          const med = SAMPLE_MEDICINES.find(m => m.id === id);
+          if (!med) return '';
+          const qty = activeCart[id];
+          const itemTotal = med.mrp * qty;
+          totalAmount += itemTotal;
+
+          return `
+            <div class="cart-row">
+              <div>
+                <div class="cart-row-title">${med.name} (${med.strength})</div>
+                <div style="font-size:0.7rem; color:var(--text-secondary);">₹${med.mrp.toFixed(2)} × ${qty}</div>
+              </div>
+              <div style="text-align:right;">
+                <div class="cart-row-price">₹${itemTotal.toFixed(2)}</div>
+                <button type="button" onclick="window.PharmPulse.removeCartItem('${med.id}')" style="background:none; border:none; color:var(--danger); font-size:0.68rem; cursor:pointer; padding:0;">Remove</button>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+        cartTotalDisplay.textContent = `₹${totalAmount.toFixed(2)}`;
+        checkoutBtn.disabled = false;
+      }
+
+      /* ------------------------------------------------------------------------
+         5. Cart Actions & Stock Safeguards
+         ------------------------------------------------------------------------ */
+      function changeQty(medId, delta) {
+        const med = SAMPLE_MEDICINES.find(m => m.id === medId);
+        if (!med) return;
+
+        const current = activeCart[medId] || 0;
+        const target = current + delta;
+
+        if (target > med.stock) {
+          showToast(`❌ Cannot exceed available stock of ${med.stock} units for ${med.name}.`, 'error');
+          return;
+        }
+
+        if (target <= 0) {
+          delete activeCart[medId];
+        } else {
+          activeCart[medId] = target;
+        }
+
+        renderMedicineList(searchInput.value || '');
+        renderCart();
+      }
+
+      function removeCartItem(medId) {
+        delete activeCart[medId];
+        renderMedicineList(searchInput.value || '');
+        renderCart();
+      }
+
+      function clearCart() {
+        activeCart = {};
+        renderMedicineList(searchInput.value || '');
+        renderCart();
+        showToast('Cart cleared.', 'info');
+      }
+
+      // Expose to window for inline onclick event handlers
+      window.PharmPulse = {
+        changeQty,
+        removeCartItem,
+        clearCart
+      };
+
+      /* ------------------------------------------------------------------------
+         6. Authentication Logic (Login & Logout)
+         ------------------------------------------------------------------------ */
+      const loginForm = document.getElementById('login-form');
+      const storeIdInput = document.getElementById('input-store-id');
+      const passwordInput = document.getElementById('input-password');
+      const togglePwdBtn = document.getElementById('btn-toggle-pwd');
+      const logoutBtn = document.getElementById('btn-logout');
+      const demoOwnerBtn = document.getElementById('demo-owner-btn');
+      const demoStaffBtn = document.getElementById('demo-staff-btn');
+
+      // Demo Preset Selection
+      demoOwnerBtn.addEventListener('click', () => {
+        demoOwnerBtn.classList.add('active');
+        demoStaffBtn.classList.remove('active');
+        storeIdInput.value = 'STORE-101';
+        passwordInput.value = 'admin123';
+      });
+
+      demoStaffBtn.addEventListener('click', () => {
+        demoStaffBtn.classList.add('active');
+        demoOwnerBtn.classList.remove('active');
+        storeIdInput.value = 'STAFF-01';
+        passwordInput.value = '1234';
+      });
+
+      // Toggle Password Visibility
+      togglePwdBtn.addEventListener('click', () => {
+        const isPass = passwordInput.type === 'password';
+        passwordInput.type = isPass ? 'text' : 'password';
+        togglePwdBtn.textContent = isPass ? '🙈' : '👁️';
+      });
+
+      // Submit Login Form
+      loginForm.addEventListener('submit', (e) => {
+        e.preventDefault();
+
+        const inputId = storeIdInput.value.trim();
+        const inputPass = passwordInput.value.trim();
+
+        // Check credentials against in-memory user list
+        const matched = VALID_USERS.find(
+          u => u.id.toLowerCase() === inputId.toLowerCase() && u.password === inputPass
+        );
+
+        if (matched) {
+          setSessionUser({
+            id: matched.id,
+            role: matched.role,
+            name: matched.name,
+            storeName: matched.storeName
+          });
+          renderApp();
+          showToast(`Welcome back, ${matched.name} (${matched.role})!`, 'success');
+        } else {
+          showToast('❌ Invalid Store ID or Password/PIN. Please try again.', 'error');
+        }
+      });
+
+      // Logout Function
+      function performLogout() {
+        clearSessionUser();
+        renderApp();
+        showToast('🚪 Logged out successfully. Counter terminal locked.', 'info');
+      }
+
+      logoutBtn.addEventListener('click', () => {
+        if (confirm('Are you sure you want to log out and exit the store?')) {
+          performLogout();
+        }
+      });
+
+      // Support Escape Key to Logout
+      window.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape') {
+          const user = getSessionUser();
+          if (user) {
+            if (confirm('Exit and logout from this session? (Esc key detected)')) {
+              performLogout();
+            }
+          }
+        }
+      });
+
+      /* ------------------------------------------------------------------------
+         7. Interactive Enhancements (Search, Tabs, Clock, Checkout)
+         ------------------------------------------------------------------------ */
+      // Real-time Search Filtering
+      searchInput.addEventListener('input', (e) => {
+        renderMedicineList(e.target.value);
+      });
+
+      // Clear Cart Button
+      document.getElementById('btn-clear-cart').addEventListener('click', clearCart);
+
+      // Finalize Bill
+      checkoutBtn.addEventListener('click', () => {
+        const cartKeys = Object.keys(activeCart);
+        if (cartKeys.length === 0) return;
+
+        showToast('🧾 Bill printed and finalized! Inventory updated successfully.', 'success');
+        activeCart = {};
+        renderMedicineList(searchInput.value || '');
+        renderCart();
+      });
+
+      // Header Real-time Clock
+      function updateClock() {
+        const clockEl = document.getElementById('session-clock');
+        if (clockEl) {
+          const now = new Date();
+          clockEl.textContent = now.toLocaleTimeString();
+        }
+      }
+      setInterval(updateClock, 1000);
+      updateClock();
+
+      // Navigation Tabs Click Handler (Visual feedback)
+      document.querySelectorAll('.nav-tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          document.querySelectorAll('.nav-tab-btn').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          showToast(`Switched to ${btn.textContent.trim()} view.`, 'info');
+        });
+      });
+
+      // Footer Links Click Handler
+      document.querySelectorAll('.footer-tab-link, .footer-link').forEach(link => {
+        link.addEventListener('click', (e) => {
+          e.preventDefault();
+          const target = link.textContent.trim();
+          showToast(`Feature "${target}" is operational in POS workspace.`, 'info');
+        });
+      });
+
+      /* ------------------------------------------------------------------------
+         8. Initial Bootstrap on Load
+         ------------------------------------------------------------------------ */
+      renderApp();
+    })();
+  </script>
+</body>
+</html>

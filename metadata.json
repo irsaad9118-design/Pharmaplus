@@ -1,0 +1,9 @@
+{
+  "name": "PharmPulse - Medical Store CRM & Pharmacy Inventory SaaS",
+  "description": "Production-ready Medical Store CRM & Pharmacy Inventory SaaS with historical consumption rate forecasting, suggested reorder dates, 2-device concurrent login limit security, Super Admin anomaly alerts, 90-day smart expiry tracking, rack/shelf positioning, generic salt substitutes, chronic refill reminders, Khata credit ledger, and POS with 80mm thermal receipts & WhatsApp bill dispatch.",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

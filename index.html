@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en" class="bg-slate-50">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PharmPulse • Medical Store CRM & Pharmacy Inventory SaaS</title>
+    <meta name="description" content="Production-ready Medical Store CRM & Pharmacy Inventory SaaS with historical consumption rate forecasting, suggested reorder dates, smart POS, multi-counter login limit, expiry tracking, and WhatsApp billing." />
+    <meta property="og:title" content="PharmPulse • Medical Store CRM & Pharmacy Inventory SaaS" />
+    <meta property="og:description" content="Production-ready Medical Store CRM & Pharmacy Inventory SaaS with historical consumption rate forecasting, suggested reorder dates, smart POS, multi-counter login limit, expiry tracking, and WhatsApp billing." />
+    <meta property="og:type" content="website" />
+    <meta name="theme-color" content="#059669" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="PharmPulse" />
+    <link rel="manifest" href="/manifest.json" />
+    <link rel="icon" type="image/svg+xml" href="/icon.svg" />
+    <link rel="apple-touch-icon" href="/icon-192.png" />
+    <style>
+      html, body {
+        background-color: #F8FAFC;
+        margin: 0;
+        padding: 0;
+        min-height: 100%;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+      }
+      #root {
+        min-height: 100vh;
+        background-color: #F8FAFC;
+      }
+      @keyframes pulseSlow {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.85; transform: scale(0.97); }
+      }
+      @keyframes barSlide {
+        0% { transform: translateX(-100%); width: 35%; }
+        50% { transform: translateX(65%); width: 55%; }
+        100% { transform: translateX(220%); width: 35%; }
+      }
+      .pre-loader-pulse {
+        animation: pulseSlow 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+      }
+      .pre-loader-bar {
+        animation: barSlide 1.5s ease-in-out infinite;
+      }
+    </style>
+  </head>
+  <body class="bg-slate-50 text-slate-900 antialiased selection:bg-teal-500 selection:text-white">
+    <div id="root">
+      <!-- Graceful Pre-Hydration Fallback Loader to Prevent Blank Screen -->
+      <div id="pre-hydration-loader" style="min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; background-color: #F8FAFC; padding: 24px; text-align: center;">
+        <div class="pre-loader-pulse" style="width: 72px; height: 72px; border-radius: 20px; background: linear-gradient(135deg, #0d9488 0%, #059669 100%); display: flex; align-items: center; justify-content: center; margin-bottom: 20px; box-shadow: 0 10px 25px -5px rgba(13, 148, 136, 0.35);">
+          <svg style="width: 38px; height: 38px; color: white;" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2">
+            <path stroke-linecap="round" stroke-linejoin="round" d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          </svg>
+        </div>
+        <div style="font-size: 20px; font-weight: 900; letter-spacing: -0.025em; color: #0f172a; margin-bottom: 4px;">
+          Pharm<span style="color: #0d9488;">Pulse</span>
+        </div>
+        <p style="font-size: 13px; font-weight: 500; color: #64748b; margin: 0 0 18px 0; letter-spacing: 0.02em;">
+          PharmPulse • Loading Store Workspace...
+        </p>
+        <div style="width: 180px; height: 4px; background-color: #e2e8f0; border-radius: 9999px; overflow: hidden; position: relative;">
+          <div class="pre-loader-bar" style="position: absolute; top: 0; bottom: 0; left: 0; background: linear-gradient(90deg, #0d9488, #10b981); border-radius: 9999px;"></div>
+        </div>
+      </div>
+    </div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+
