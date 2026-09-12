@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { usePharmacy } from '../../context/PharmacyContext';
-import { MedicationInventory, ScheduleClass } from '../../types/pharmacy';
+import { MedicationInventory, ScheduleClass, InventoryBatch } from '../../types/pharmacy';
 import { 
   Package, 
   Search, 
@@ -9,6 +9,11 @@ import {
   ArrowRightLeft, 
   AlertCircle, 
   Edit3, 
+  Pencil,
+  Trash2,
+  Archive,
+  ChevronDown,
+  ChevronUp,
   CheckCircle2, 
   Layers, 
   Percent, 
@@ -28,7 +33,8 @@ import {
   MicOff,
   TrendingUp,
   Clock,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Pill
 } from 'lucide-react';
 import { useVoiceSearch } from '../../hooks/useVoiceSearch';
 import { 
@@ -38,9 +44,10 @@ import {
 } from '../../utils/reorderForecastUtils';
 import { ItemReorderForecastModal } from './ItemReorderForecastModal';
 import { InventoryReorderRadar } from './InventoryReorderRadar';
+import { AutomaticReorderAlertBanner, ReorderAlertItem } from './AutomaticReorderAlertBanner';
 import { MedicineThumbnail } from './MedicineThumbnail';
-import { CategoryThumbnailModal } from './CategoryThumbnailModal';
-import { CategoryThumbnailsGalleryModal } from './CategoryThumbnailsGalleryModal';
+import { findExistingInventoryMatch, deduplicateMasterInventory } from '../../utils/inventoryDeduplication';
+import { ShortageOrderItem } from '../../types/pharmacy';
 
 export const InventoryView: React.FC = () => {
   const { 
@@ -51,17 +58,22 @@ export const InventoryView: React.FC = () => {
     addBulkInventoryItems,
     updateInventoryItem, 
     updateInventoryStock, 
+    deleteInventoryItem,
     updateRackPosition, 
     findSubstitutes,
     getExpiryTier,
     getDaysUntilExpiry,
-    setActiveTab
+    setActiveTab,
+    lastMergeBanner,
+    setLastMergeBanner,
+    savePurchaseOrder,
+    formatDistributorWhatsAppOrder
   } = usePharmacy();
 
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [selectedRack, setSelectedRack] = useState<string>('all');
-  const [stockFilter, setStockFilter] = useState<'all' | 'low' | 'out' | 'near_expiry' | 'needs_reorder_7d' | 'needs_reorder_30d'>('all');
+  const [stockFilter, setStockFilter] = useState<'all' | 'low' | 'out' | 'near_expiry' | 'needs_reorder_7d' | 'needs_reorder_30d' | 'reorder_point_alert'>('all');
   const [forecastModalItem, setForecastModalItem] = useState<MedicationInventory | null>(null);
   const [sortByUrgency, setSortByUrgency] = useState<boolean>(false);
 
@@ -105,8 +117,6 @@ export const InventoryView: React.FC = () => {
   const [editingItem, setEditingItem] = useState<MedicationInventory | null>(null);
   const [substituteModalItem, setSubstituteModalItem] = useState<MedicationInventory | null>(null);
   const [rackEditItem, setRackEditItem] = useState<MedicationInventory | null>(null);
-  const [selectedThumbItem, setSelectedThumbItem] = useState<MedicationInventory | null>(null);
-  const [showCategoryThumbnailsModal, setShowCategoryThumbnailsModal] = useState<boolean>(false);
 
   // Form states for Add / Edit
   const [formBrand, setFormBrand] = useState('');
@@ -134,6 +144,29 @@ export const InventoryView: React.FC = () => {
   const [formBin, setFormBin] = useState('Bin 04');
   const [formManufacturer, setFormManufacturer] = useState('');
   const [formStorage, setFormStorage] = useState<'Room Temp (15-25°C)' | 'Refrigerated (2-8°C)' | 'Controlled Deep Freeze (-20°C)' | 'Dark & Dry Place'>('Room Temp (15-25°C)');
+  const [restockQty, setRestockQty] = useState<number>(0);
+
+  // Archive / Soft Delete confirmation state
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState<boolean>(false);
+
+  // Multi-batch management states for Edit Modal
+  const [formBatches, setFormBatches] = useState<InventoryBatch[]>([]);
+  const [newBatchNumber, setNewBatchNumber] = useState<string>('');
+  const [newBatchExp, setNewBatchExp] = useState<string>('2028-06-30');
+  const [newBatchStock, setNewBatchStock] = useState<number>(50);
+  const [showNewBatchInputs, setShowNewBatchInputs] = useState<boolean>(false);
+  const [expandedBatchesItemId, setExpandedBatchesItemId] = useState<string | null>(null);
+
+  // Real-time existing medicine detection for entry forms
+  const qaExistingMatch = useMemo(() => {
+    if (!qaBrand.trim()) return null;
+    return findExistingInventoryMatch(inventory, { brandName: qaBrand, saltComposition: qaSalt });
+  }, [inventory, qaBrand, qaSalt]);
+
+  const formExistingMatch = useMemo(() => {
+    if (editingItem || !formBrand.trim()) return null;
+    return findExistingInventoryMatch(inventory, { brandName: formBrand, saltComposition: formSalt });
+  }, [inventory, formBrand, formSalt, editingItem]);
 
   // Extract distinct categories & racks
   const categories = useMemo(() => {
@@ -157,13 +190,41 @@ export const InventoryView: React.FC = () => {
     return getReorderRadarMetrics(reorderForecastMap);
   }, [reorderForecastMap]);
 
-  // Filtered and Sorted List
+  // Items reaching their reorder point based on historical consumption
+  const reorderAlertItems = useMemo<ReorderAlertItem[]>(() => {
+    const deduplicatedMaster = deduplicateMasterInventory(inventory || []);
+    return deduplicatedMaster
+      .map(item => ({ item, forecast: reorderForecastMap.get(item.id)! }))
+      .filter(({ item, forecast }) => {
+        if (!forecast || item.isArchived) return false;
+        // Criteria for reaching or breaching reorder point based on historical consumption:
+        // 1. Current stock is at or below reorder level / min alert level
+        // 2. OR days until reorder <= 3 (supplier lead time threshold reached based on consumption velocity)
+        // 3. OR urgency status is out of stock or urgent
+        const isStockAtOrBelow = (item.stockQuantity ?? 0) <= (item.reorderLevel || item.minAlertLevel || 10);
+        const isRunwayCritical = forecast.daysUntilReorder <= 3;
+        const isUrgentStatus = forecast.urgencyStatus === 'out_of_stock' || forecast.urgencyStatus === 'urgent';
+        return isStockAtOrBelow || isRunwayCritical || isUrgentStatus;
+      })
+      .sort((a, b) => (a.forecast.daysUntilReorder ?? 999) - (b.forecast.daysUntilReorder ?? 999));
+  }, [inventory, reorderForecastMap]);
+
+  // Filtered and Sorted List - strictly deduplicated into unified master inventory
   const filteredInventory = useMemo(() => {
-    const list = (inventory || []).filter(item => {
+    const deduplicatedMaster = deduplicateMasterInventory(inventory || []);
+    const list = deduplicatedMaster.filter(item => {
       if (!item) return false;
+      if (item.isArchived) return false;
       if (selectedCategory !== 'all' && item?.category !== selectedCategory) return false;
       if (selectedRack !== 'all' && item?.rackNumber !== selectedRack) return false;
 
+      if (stockFilter === 'reorder_point_alert') {
+        const forecast = reorderForecastMap.get(item.id);
+        const isStockAtOrBelow = (item?.stockQuantity ?? 0) <= (item?.reorderLevel || item?.minAlertLevel || 10);
+        const isRunwayCritical = forecast ? forecast.daysUntilReorder <= 3 : false;
+        const isUrgentStatus = forecast ? (forecast.urgencyStatus === 'out_of_stock' || forecast.urgencyStatus === 'urgent') : false;
+        if (!isStockAtOrBelow && !isRunwayCritical && !isUrgentStatus) return false;
+      }
       if (stockFilter === 'low' && (item?.stockQuantity || 0) > (item?.minAlertLevel || 15)) return false;
       if (stockFilter === 'out' && (item?.stockQuantity || 0) > 0) return false;
       if (stockFilter === 'near_expiry') {
@@ -202,9 +263,51 @@ export const InventoryView: React.FC = () => {
     return list;
   }, [inventory, selectedCategory, selectedRack, stockFilter, searchTerm, getDaysUntilExpiry, reorderForecastMap, sortByUrgency]);
 
+  // Create consolidated purchase order from reorder alert items
+  const handleCreateConsolidatedPOFromAlert = (itemsToOrder: ReorderAlertItem[]) => {
+    if (itemsToOrder.length === 0) return;
+    const poItems: ShortageOrderItem[] = itemsToOrder.map(({ item, forecast }) => ({
+      inventoryId: item.id,
+      brandName: item.brandName,
+      saltComposition: item.saltComposition || item.genericName || 'Standard',
+      supplierName: forecast.supplierName || item.supplierName || 'Primary Distributor',
+      supplierContact: forecast.supplierContact || item.supplierContact || '+91 (800) 555-0199',
+      currentStock: item.stockQuantity ?? 0,
+      minAlertLevel: item.minAlertLevel || item.reorderLevel || 10,
+      reorderLevel: item.reorderLevel || item.minAlertLevel || 10,
+      suggestedQty: forecast.suggestedOrderQty,
+      orderQty: forecast.suggestedOrderQty,
+      unit: item.unit || 'Strips',
+      purchaseRate: forecast.purchaseRate || item.purchaseRate || item.costPrice || 0,
+      mrp: item.mrp || 0,
+      rackLocation: item.locationShelf || `${item.rackNumber || 'Rack A'} / ${item.shelfRow || 'Shelf 1'}`,
+      status: 'ordered'
+    }));
+
+    const supplier = poItems.length === 1 ? poItems[0].supplierName : 'Consolidated Distributors';
+    const newPO = savePurchaseOrder(
+      supplier,
+      poItems,
+      `Auto-created from Consumption Reorder Point Alert for ${poItems.length} medicines.`
+    );
+
+    const { waUrl } = formatDistributorWhatsAppOrder(supplier, poItems);
+
+    addToast({
+      type: 'success',
+      title: 'Consolidated PO Saved',
+      message: `Created PO ${newPO.poNumber} for ${poItems.length} medicines (₹${newPO.totalEstimatedAmount.toFixed(2)}).`
+    });
+
+    if (waUrl) {
+      window.open(waUrl, '_blank');
+    }
+  };
+
   // Open Edit modal populated
   const handleStartEdit = (item: MedicationInventory) => {
     setEditingItem(item);
+    setRestockQty(0);
     setFormBrand(item.brandName);
     setFormGeneric(item.genericName);
     setFormSalt(item.saltComposition || item.genericName);
@@ -230,11 +333,62 @@ export const InventoryView: React.FC = () => {
     setFormBin(item.boxBin || 'Bin 01');
     setFormManufacturer(item.manufacturer || '');
     setFormStorage(item.storageCondition || 'Room Temp (15-25°C)');
+
+    // Initialize multi-batch records for in-place editing
+    const existingBatches: InventoryBatch[] = item.batches && item.batches.length > 0
+      ? item.batches.map(b => ({ ...b }))
+      : [{
+          id: `batch-${item.id}-0`,
+          batchNumber: item.batchNumber || 'BT-101',
+          expirationDate: item.expirationDate || '2027-12-31',
+          mfgDate: item.mfgDate,
+          stockQuantity: item.stockQuantity,
+          mrp: item.mrp,
+          purchaseRate: item.purchaseRate,
+          addedAt: item.mfgDate || new Date().toISOString(),
+          isSecondary: false
+        }];
+    setFormBatches(existingBatches);
+    setShowDeleteConfirm(false);
+    setShowNewBatchInputs(false);
+    setNewBatchNumber('');
+    setNewBatchExp('2028-06-30');
+    setNewBatchStock(50);
     setShowAddModal(true);
+  };
+
+  const handleAddSecondaryBatch = () => {
+    if (!newBatchNumber.trim() || Number(newBatchStock) <= 0) return;
+    const batchObj: InventoryBatch = {
+      id: `batch-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+      batchNumber: newBatchNumber.trim(),
+      expirationDate: newBatchExp || '2028-12-31',
+      stockQuantity: Number(newBatchStock),
+      mrp: Number(formMrp),
+      purchaseRate: Number(formPurchaseRate),
+      addedAt: new Date().toISOString(),
+      isSecondary: true
+    };
+    const updatedBatches = [...formBatches, batchObj];
+    setFormBatches(updatedBatches);
+    const totalStock = updatedBatches.reduce((s, b) => s + (Number(b.stockQuantity) || 0), 0);
+    setFormStock(totalStock);
+    setNewBatchNumber('');
+    setNewBatchStock(50);
+    setShowNewBatchInputs(false);
+    addToast({
+      type: 'success',
+      title: 'Secondary Batch Attached',
+      message: `Batch ${batchObj.batchNumber} (+${batchObj.stockQuantity} ${formUnit}) attached to ${formBrand}.`
+    });
   };
 
   const handleOpenNewMedicine = () => {
     setEditingItem(null);
+    setRestockQty(0);
+    setFormBatches([]);
+    setShowDeleteConfirm(false);
+    setShowNewBatchInputs(false);
     setFormBrand('');
     setFormGeneric('');
     setFormSalt('');
@@ -268,22 +422,48 @@ export const InventoryView: React.FC = () => {
     if (!formBrand || !formBatch) return;
 
     if (editingItem) {
+      let updatedBatches = formBatches.length > 0 ? [...formBatches] : [];
+      if (updatedBatches.length > 0) {
+        // If restockQty was entered, add to the primary batch
+        const addedInward = Number(restockQty) || 0;
+        updatedBatches[0] = {
+          ...updatedBatches[0],
+          batchNumber: formBatch.trim(),
+          expirationDate: formExp,
+          mfgDate: formMfg,
+          mrp: Number(formMrp),
+          purchaseRate: Number(formPurchaseRate),
+          stockQuantity: (Number(updatedBatches[0].stockQuantity) || 0) + addedInward
+        };
+      }
+      const totalStockAcrossBatches = updatedBatches.length > 0
+        ? updatedBatches.reduce((s, b) => s + (Number(b.stockQuantity) || 0), 0)
+        : Number(formStock) + (Number(restockQty) || 0);
+
+      // Determine display batch (earliest expiring with stock > 0)
+      const activeBatches = updatedBatches.filter(b => (Number(b.stockQuantity) || 0) > 0);
+      const sorted = (activeBatches.length > 0 ? activeBatches : updatedBatches).slice().sort((a, b) => {
+        return new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime();
+      });
+      const displayBatch = sorted[0] || updatedBatches[0];
+
       updateInventoryItem(editingItem.id, {
-        brandName: formBrand,
-        genericName: formGeneric || formBrand,
-        saltComposition: formSalt || formGeneric,
-        strength: formStrength,
+        brandName: formBrand.trim(),
+        genericName: formGeneric.trim() || formBrand.trim(),
+        saltComposition: formSalt.trim() || formGeneric.trim() || formBrand.trim(),
+        strength: formStrength.trim(),
         dosageForm: formDosageForm,
         category: formCategory,
         scheduleClass: formSchedule,
-        batchNumber: formBatch,
+        batchNumber: displayBatch ? displayBatch.batchNumber : formBatch.trim(),
         mfgDate: formMfg,
-        expirationDate: formExp,
+        expirationDate: displayBatch ? displayBatch.expirationDate : formExp,
         mrp: Number(formMrp),
         purchaseRate: Number(formPurchaseRate),
         costPrice: Number(formPurchaseRate),
         sellingPrice: Number(formMrp),
-        stockQuantity: Number(formStock),
+        stockQuantity: totalStockAcrossBatches,
+        batches: updatedBatches,
         unit: formUnit,
         packSize: Number(formPackSize),
         reorderLevel: Number(formMinAlert),
@@ -298,6 +478,16 @@ export const InventoryView: React.FC = () => {
         manufacturer: formManufacturer,
         storageCondition: formStorage
       });
+
+      addToast({
+        type: 'success',
+        title: 'Master Record Updated',
+        message: restockQty > 0
+          ? `Restocked ${formBrand} (+${restockQty} units). Total stock is now ${totalStockAcrossBatches} ${formUnit}.`
+          : `Updated ${formBrand} master record (Batch: ${formBatch}, Stock: ${totalStockAcrossBatches} across ${updatedBatches.length} batch(es)).`
+      });
+      setRestockQty(0);
+      setEditingItem(null);
     } else {
       addInventoryItem({
         ndc: 'NDC-' + Math.floor(10000 + Math.random() * 90000),
@@ -333,6 +523,8 @@ export const InventoryView: React.FC = () => {
         quarantined: false,
         autoReorder: true
       });
+      setRestockQty(0);
+      setEditingItem(null);
     }
     setShowAddModal(false);
   };
@@ -340,6 +532,48 @@ export const InventoryView: React.FC = () => {
   return (
     <div id="inventory-view-container" className="space-y-6">
       
+      {/* Confirmation Banner: Smart Deduplication & Stock Merged */}
+      {lastMergeBanner && (
+        <div 
+          id="existing-medicine-merged-banner"
+          className="p-4 rounded-2xl bg-emerald-50 dark:bg-emerald-950/60 border-2 border-emerald-500/40 text-emerald-900 dark:text-emerald-100 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md animate-in fade-in slide-in-from-top-2"
+        >
+          <div className="flex items-start sm:items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-emerald-600 text-white flex items-center justify-center shrink-0 shadow-sm shadow-emerald-600/30">
+              <CheckCircle2 className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="font-bold text-sm text-emerald-900 dark:text-emerald-50">
+                  Existing medicine found. Stock quantity updated.
+                </span>
+                <span className="text-[10px] font-mono font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-200/70 dark:bg-emerald-800/60 text-emerald-900 dark:text-emerald-100">
+                  Smart Merged
+                </span>
+              </div>
+              <p className="text-xs text-emerald-800 dark:text-emerald-200 mt-0.5">
+                <strong>{lastMergeBanner.brandName}</strong> stock merged: {lastMergeBanner.previousStock} + <strong className="text-emerald-700 dark:text-emerald-300 font-black">+{lastMergeBanner.addedStock} {lastMergeBanner.unit || 'units'}</strong> → <span className="font-extrabold text-emerald-950 dark:text-white underline">{lastMergeBanner.newStock} total in master record</span> (Batch: {lastMergeBanner.batchNumber}). No duplicate rows created.
+              </p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+            <button
+              onClick={() => setSearchTerm(lastMergeBanner.brandName)}
+              className="px-3 py-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-xs cursor-pointer transition-colors"
+            >
+              Locate in Table
+            </button>
+            <button
+              onClick={() => setLastMergeBanner(null)}
+              className="p-1.5 text-emerald-700 hover:text-emerald-900 dark:text-emerald-300 dark:hover:text-emerald-100 rounded-lg hover:bg-emerald-100 dark:hover:bg-emerald-900/40 cursor-pointer"
+              title="Dismiss confirmation banner"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Top Banner & Fast Actions */}
       <div className="bg-white dark:bg-slate-800 rounded-2xl p-5 border border-slate-200 dark:border-slate-700 shadow-sm">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
@@ -358,6 +592,25 @@ export const InventoryView: React.FC = () => {
           </div>
 
           <div className="flex items-center gap-2.5 flex-wrap">
+            {reorderAlertItems.length > 0 && (
+              <button
+                onClick={() => setStockFilter(prev => prev === 'reorder_point_alert' ? 'all' : 'reorder_point_alert')}
+                id="reorder-point-alert-badge-btn"
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all shadow-xs cursor-pointer ${
+                  stockFilter === 'reorder_point_alert'
+                    ? 'bg-amber-500 text-white ring-2 ring-amber-400'
+                    : 'bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900 text-amber-800 dark:text-amber-200 border border-amber-300 dark:border-amber-700'
+                }`}
+                title="Filter table to items reaching reorder point based on historical consumption"
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-400 opacity-75"></span>
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-rose-600"></span>
+                </span>
+                <span>🚨 {reorderAlertItems.length} at Reorder Point</span>
+              </button>
+            )}
+
             <button
               onClick={() => setActiveTab('expiry')}
               id="goto-expiry-alerts-btn"
@@ -377,16 +630,6 @@ export const InventoryView: React.FC = () => {
             >
               <Boxes className="w-4 h-4 text-indigo-500" />
               <span>📥 Bulk / CSV Paste</span>
-            </button>
-
-            <button
-              onClick={() => setShowCategoryThumbnailsModal(true)}
-              id="category-thumbnails-studio-btn"
-              className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-purple-50 hover:bg-purple-100 dark:bg-purple-950/60 dark:hover:bg-purple-900 text-purple-700 dark:text-purple-300 border border-purple-200 dark:border-purple-800 text-xs font-semibold transition-all shadow-2xs cursor-pointer"
-              title="Manage AI Category Placeholder Thumbnails (Imagen API)"
-            >
-              <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400" />
-              <span>Category Thumbnails (Imagen)</span>
             </button>
 
             <button
@@ -509,7 +752,8 @@ export const InventoryView: React.FC = () => {
               className="w-full bg-transparent text-slate-700 dark:text-slate-200 font-semibold focus:outline-none cursor-pointer"
             >
               <option value="all">All Stock Levels</option>
-              <option value="needs_reorder_7d">🚨 Needs Reorder Now (≤ 7 Days)</option>
+              <option value="reorder_point_alert">🚨 Reached Reorder Point ({reorderAlertItems.length})</option>
+              <option value="needs_reorder_7d">⚡ Needs Reorder Now (≤ 7 Days)</option>
               <option value="needs_reorder_30d">📅 Needs Reorder This Month (≤ 30 Days)</option>
               <option value="low">⚠️ Low Stock (≤ Reorder Level)</option>
               <option value="out">❌ Out of Stock (0 Qty)</option>
@@ -570,6 +814,20 @@ export const InventoryView: React.FC = () => {
         )}
       </div>
 
+      {/* Automatic Reorder Alert Banner: Highlight items reaching reorder point based on historical consumption */}
+      <AutomaticReorderAlertBanner
+        alertItems={reorderAlertItems}
+        allForecastsMap={reorderForecastMap}
+        isTableFiltered={stockFilter === 'reorder_point_alert'}
+        onToggleFilterTable={() => {
+          setStockFilter(prev => prev === 'reorder_point_alert' ? 'all' : 'reorder_point_alert');
+        }}
+        onOpenForecastModal={(item) => setForecastModalItem(item)}
+        onLocateItem={(brandName) => setSearchTerm(brandName)}
+        onCreateConsolidatedPO={handleCreateConsolidatedPOFromAlert}
+        onToast={addToast}
+      />
+
       {/* Suggested Reorder Radar Banner: Consumption Intelligence & PO Schedule */}
       <InventoryReorderRadar
         summary={reorderRadarSummary}
@@ -589,10 +847,10 @@ export const InventoryView: React.FC = () => {
           <table className="w-full text-left border-collapse text-xs">
             <thead>
               <tr className="bg-slate-50 dark:bg-slate-900/70 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
-                <th className="py-3 px-4 min-w-[260px]">
+                <th className="py-3 px-4 min-w-[240px]">
                   <div className="flex items-center gap-2">
-                    <ImageIcon className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Medicine & Category Thumbnail</span>
+                    <Pill className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Medicine & Form</span>
                   </div>
                 </th>
                 <th className="py-3 px-4">Batch & Expiry</th>
@@ -628,13 +886,10 @@ export const InventoryView: React.FC = () => {
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-750 transition-colors">
                       
-                      {/* Brand, Thumbnail & Salt */}
+                      {/* Brand, Icon & Salt */}
                       <td className="py-3 px-4">
-                        <div className="flex items-start gap-3">
-                          <MedicineThumbnail 
-                            item={item} 
-                            onClick={() => setSelectedThumbItem(item)} 
-                          />
+                        <div className="flex items-start gap-2.5">
+                          <MedicineThumbnail item={item} />
                           <div className="min-w-0 flex-1">
                             <div className="flex items-center gap-2 flex-wrap">
                               <span className="font-bold text-slate-900 dark:text-white text-sm">
@@ -683,12 +938,47 @@ export const InventoryView: React.FC = () => {
 
                       {/* Batch & Expiry */}
                       <td className="py-3 px-4">
-                        <div className="font-mono text-slate-700 dark:text-slate-300 font-semibold bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded inline-block border border-slate-200 dark:border-slate-700">
-                          {item.batchNumber}
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <div className="font-mono text-slate-700 dark:text-slate-300 font-semibold bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded inline-block border border-slate-200 dark:border-slate-700 text-xs">
+                            {item.batchNumber}
+                          </div>
+                          {item.batches && item.batches.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => setExpandedBatchesItemId(prev => prev === item.id ? null : item.id)}
+                              className="px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-teal-100 hover:bg-teal-200 dark:bg-teal-900/70 dark:hover:bg-teal-900 text-teal-800 dark:text-teal-200 border border-teal-300 dark:border-teal-700 transition-colors flex items-center gap-0.5 cursor-pointer"
+                              title="Click to view all batches attached under this medicine"
+                            >
+                              <span>{item.batches.length} Batches</span>
+                              {expandedBatchesItemId === item.id ? <ChevronUp className="w-2.5 h-2.5" /> : <ChevronDown className="w-2.5 h-2.5" />}
+                            </button>
+                          )}
                         </div>
                         <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1 font-mono">
                           Exp: <span className={daysLeft <= 30 ? 'text-rose-600 font-bold' : daysLeft <= 90 ? 'text-amber-600 font-semibold' : ''}>{item.expirationDate}</span>
                         </div>
+
+                        {/* Expandable secondary batches dropdown */}
+                        {item.batches && item.batches.length > 1 && expandedBatchesItemId === item.id && (
+                          <div className="mt-2 p-2.5 bg-slate-50 dark:bg-slate-900/90 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] space-y-1.5 shadow-sm animate-in fade-in">
+                            <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">All Batches for this Record:</div>
+                            {item.batches.map(b => (
+                              <div key={b.id} className="flex items-center justify-between gap-2 py-0.5 border-b last:border-none border-slate-200 dark:border-slate-800 font-mono">
+                                <span className="font-bold text-slate-800 dark:text-slate-200">{b.batchNumber}</span>
+                                <span className="text-slate-600 dark:text-slate-400">{b.stockQuantity} {item.unit}</span>
+                                <span className="text-[10px] text-slate-400">Exp: {b.expirationDate}</span>
+                              </div>
+                            ))}
+                            <button
+                              type="button"
+                              onClick={() => handleStartEdit(item)}
+                              className="text-[10px] font-bold text-teal-600 hover:text-teal-700 dark:text-teal-400 flex items-center gap-1 pt-1 cursor-pointer"
+                            >
+                              <Pencil className="w-2.5 h-2.5" />
+                              <span>Manage Batches in Edit Modal</span>
+                            </button>
+                          </div>
+                        )}
                       </td>
 
                       {/* PHYSICAL RACK LOCATION - Prominent Badge */}
@@ -816,14 +1106,15 @@ export const InventoryView: React.FC = () => {
                             <span>Substitutes</span>
                           </button>
 
-                          {/* Edit Item */}
+                          {/* Inline Edit / Quick Correction Action */}
                           <button
                             onClick={() => handleStartEdit(item)}
                             id={`edit-medicine-btn-${item.id}`}
-                            className="p-1.5 rounded-lg text-slate-500 hover:text-teal-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
-                            title="Edit Medicine Details"
+                            className="px-2.5 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/70 dark:hover:bg-teal-900 text-teal-800 dark:text-teal-200 border border-teal-300 dark:border-teal-700 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                            title="Edit medicine details, correct batch, expiry, unit price, or restock"
                           >
-                            <Edit3 className="w-3.5 h-3.5" />
+                            <Pencil className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                            <span>Edit</span>
                           </button>
 
                         </div>
@@ -1035,14 +1326,34 @@ export const InventoryView: React.FC = () => {
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2 text-teal-600 font-bold">
                 <Package className="w-5 h-5" />
-                <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                  {editingItem ? 'Edit Medicine Master Record' : 'Register New Medicine into Inventory'}
-                </h3>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                    {editingItem ? `Edit & Restock: ${editingItem.brandName}` : 'Register New Medicine into Inventory'}
+                  </h3>
+                  <p className="text-[11px] text-slate-500 font-normal">
+                    {editingItem 
+                      ? 'Modify batch, expiry, unit price, and stock or restock incoming units directly in this master record without leaving the screen.' 
+                      : 'Smart inventory will automatically merge stock into the master record if this medicine already exists.'}
+                  </p>
+                </div>
               </div>
               <button onClick={() => setShowAddModal(false)} className="text-slate-400 hover:text-slate-600">
                 <X className="w-5 h-5" />
               </button>
             </div>
+
+            {/* Smart Merge Warning when Adding New Medicine */}
+            {formExistingMatch && (
+              <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 rounded-xl text-emerald-900 dark:text-emerald-100 text-xs flex items-start gap-2.5 animate-in fade-in">
+                <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div>
+                  <div className="font-bold">Existing medicine detected in master inventory!</div>
+                  <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                    <strong>{formExistingMatch.brandName}</strong> already exists with <strong>{formExistingMatch.stockQuantity} {formExistingMatch.unit}</strong> (Batch: {formExistingMatch.batchNumber}). Submitting this form will automatically merge the new quantity (+{formStock}) into the existing master record and update details without creating a duplicate row.
+                  </p>
+                </div>
+              </div>
+            )}
 
             <form onSubmit={handleSaveMedicineForm} className="space-y-4 text-xs">
               
@@ -1201,7 +1512,9 @@ export const InventoryView: React.FC = () => {
                   />
                 </div>
                 <div>
-                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">Initial Stock Qty:</label>
+                  <label className="block font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                    {editingItem ? 'Current Stock Qty:' : 'Initial Stock Qty:'}
+                  </label>
                   <input
                     type="number"
                     min={0}
@@ -1211,6 +1524,183 @@ export const InventoryView: React.FC = () => {
                   />
                 </div>
               </div>
+
+              {/* Dedicated Stock Re-entry / Quick Restock Card */}
+              {editingItem && (
+                <div className="p-3.5 bg-teal-50/80 dark:bg-teal-950/40 rounded-xl border border-teal-200 dark:border-teal-800 space-y-2.5">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-teal-900 dark:text-teal-200 flex items-center gap-1.5 text-xs">
+                      <Boxes className="w-4 h-4 text-teal-600" />
+                      📦 Re-entry & Restock Inward Quantity
+                    </span>
+                    <span className="text-[11px] font-semibold text-teal-700 dark:text-teal-300">
+                      Current: <strong className="text-teal-900 dark:text-white font-mono">{formStock} {formUnit}</strong>
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-700 dark:text-slate-300 mb-1">
+                        + Add Inward Stock Units:
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          value={restockQty || ''}
+                          onChange={(e) => setRestockQty(Math.max(0, parseInt(e.target.value) || 0))}
+                          placeholder="0"
+                          className="w-full px-3 py-1.5 bg-white dark:bg-slate-900 border border-teal-300 dark:border-teal-700 rounded-lg text-xs font-mono font-bold text-teal-900 dark:text-teal-100"
+                        />
+                        <div className="flex items-center gap-1 shrink-0">
+                          {[10, 25, 50, 100].map(amt => (
+                            <button
+                              key={amt}
+                              type="button"
+                              onClick={() => setRestockQty(prev => prev + amt)}
+                              className="px-1.5 py-1 bg-white dark:bg-slate-800 hover:bg-teal-100 dark:hover:bg-teal-900 border border-teal-200 dark:border-teal-700 rounded text-[10px] font-mono font-bold text-teal-700 dark:text-teal-300 transition-colors cursor-pointer"
+                            >
+                              +{amt}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col justify-center bg-white/80 dark:bg-slate-900/80 px-3 py-1.5 rounded-lg border border-teal-200/70 dark:border-teal-800/70">
+                      <span className="text-[10px] text-slate-500 uppercase tracking-wider font-semibold">New Total Stock After Save:</span>
+                      <div className="text-sm font-black text-teal-700 dark:text-teal-300 font-mono flex items-center gap-1.5 mt-0.5">
+                        <span>{Number(formStock) + (Number(restockQty) || 0)} {formUnit}</span>
+                        {restockQty > 0 && (
+                          <span className="text-[10px] font-normal px-1.5 py-0.5 bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 rounded">
+                            (+{restockQty} arriving)
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Multi-Batch & Smart Batch Restock Section */}
+              {editingItem && (
+                <div className="p-3.5 bg-slate-50 dark:bg-slate-900/90 rounded-xl border border-slate-200 dark:border-slate-700 space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-1.5 font-bold text-slate-800 dark:text-slate-200 text-xs">
+                      <Layers className="w-4 h-4 text-teal-600" />
+                      <span>Smart Multi-Batch Inventory ({formBatches.length} Batch{formBatches.length === 1 ? '' : 'es'})</span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setShowNewBatchInputs(prev => !prev)}
+                      className="px-2.5 py-1 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950 dark:hover:bg-teal-900 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 rounded-lg text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Attach New Batch</span>
+                    </button>
+                  </div>
+
+                  {/* Inline Form to Attach New Batch */}
+                  {showNewBatchInputs && (
+                    <div className="p-3 bg-white dark:bg-slate-800 rounded-lg border border-teal-300 dark:border-teal-700 space-y-2 animate-in fade-in">
+                      <div className="text-[11px] font-bold text-teal-800 dark:text-teal-200">
+                        Attach Secondary Batch (Different batch number, expiry date or inward lot)
+                      </div>
+                      <div className="grid grid-cols-3 gap-2">
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                            Batch Number *:
+                          </label>
+                          <input
+                            type="text"
+                            value={newBatchNumber}
+                            onChange={(e) => setNewBatchNumber(e.target.value)}
+                            placeholder="e.g. BT-9920A"
+                            className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                            Expiration Date *:
+                          </label>
+                          <input
+                            type="date"
+                            value={newBatchExp}
+                            onChange={(e) => setNewBatchExp(e.target.value)}
+                            className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[10px] font-semibold text-slate-600 dark:text-slate-400 mb-0.5">
+                            Stock Units *:
+                          </label>
+                          <input
+                            type="number"
+                            min={1}
+                            value={newBatchStock}
+                            onChange={(e) => setNewBatchStock(Math.max(1, parseInt(e.target.value) || 0))}
+                            className="w-full px-2.5 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded text-xs font-mono font-bold"
+                          />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-end gap-2 pt-1">
+                        <button
+                          type="button"
+                          onClick={() => setShowNewBatchInputs(false)}
+                          className="px-2.5 py-1 text-xs text-slate-500 hover:text-slate-700 cursor-pointer"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAddSecondaryBatch}
+                          disabled={!newBatchNumber.trim()}
+                          className="px-3 py-1 bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white rounded text-xs font-semibold cursor-pointer shadow-xs"
+                        >
+                          Attach Batch
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* List of Batches for this medicine */}
+                  {formBatches.length > 0 && (
+                    <div className="divide-y divide-slate-200 dark:divide-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg overflow-hidden bg-white dark:bg-slate-800">
+                      {formBatches.map((b, idx) => (
+                        <div key={b.id || idx} className="p-2.5 flex items-center justify-between text-xs">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-slate-800 dark:text-slate-200 bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded text-[11px] border border-slate-200 dark:border-slate-700">
+                              {b.batchNumber}
+                            </span>
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${idx === 0 ? 'bg-indigo-50 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-200 dark:border-indigo-800' : 'bg-slate-100 dark:bg-slate-700 text-slate-600 dark:text-slate-300'}`}>
+                              {idx === 0 ? 'Primary' : 'Secondary'}
+                            </span>
+                            <span className="text-slate-500 dark:text-slate-400 font-mono text-[11px]">Exp: {b.expirationDate}</span>
+                          </div>
+                          <div className="flex items-center gap-2 font-mono font-bold text-slate-700 dark:text-slate-300">
+                            <span>{b.stockQuantity} {formUnit}</span>
+                            {idx > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const updated = formBatches.filter((_, i) => i !== idx);
+                                  setFormBatches(updated);
+                                  const totalStock = updated.reduce((s, x) => s + (Number(x.stockQuantity) || 0), 0);
+                                  setFormStock(totalStock);
+                                }}
+                                className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
+                                title="Remove this secondary batch"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Row 5: Pricing, GST, Supplier */}
               <div className="grid grid-cols-4 gap-2">
@@ -1283,20 +1773,77 @@ export const InventoryView: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200 dark:border-slate-700">
-                <button
-                  type="button"
-                  onClick={() => setShowAddModal(false)}
-                  className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-md shadow-teal-600/20"
-                >
-                  {editingItem ? 'Save Medicine Changes' : 'Save & Stock Medicine'}
-                </button>
+              <div className="flex flex-col gap-3 pt-3 border-t border-slate-200 dark:border-slate-700">
+                {/* Instant Delete / Archive Confirmation Dialog */}
+                {showDeleteConfirm && editingItem && (
+                  <div className="p-3.5 bg-rose-50 dark:bg-rose-950/60 border border-rose-300 dark:border-rose-800 rounded-xl space-y-2 animate-in fade-in">
+                    <div className="flex items-start gap-2.5 text-rose-900 dark:text-rose-100 text-xs">
+                      <AlertCircle className="w-4 h-4 text-rose-600 shrink-0 mt-0.5" />
+                      <div>
+                        <div className="font-bold text-sm text-rose-900 dark:text-rose-50">Archive {editingItem.brandName}?</div>
+                        <p className="text-[11px] text-rose-700 dark:text-rose-300 mt-0.5">
+                          If this medicine was entered completely by mistake, archiving will safely remove it from active inventory stock counts and billing searches.
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center justify-end gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => setShowDeleteConfirm(false)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-white dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      >
+                        Keep Medicine
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          deleteInventoryItem(editingItem.id, true);
+                          setShowDeleteConfirm(false);
+                          setShowAddModal(false);
+                          setEditingItem(null);
+                        }}
+                        className="px-3.5 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-xs cursor-pointer transition-colors"
+                      >
+                        Confirm Archive & Remove
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex items-center justify-between gap-3">
+                  {editingItem ? (
+                    <button
+                      type="button"
+                      onClick={() => setShowDeleteConfirm(prev => !prev)}
+                      className="px-3 py-2 rounded-xl text-rose-600 hover:text-rose-700 hover:bg-rose-50 dark:hover:bg-rose-950/50 text-xs font-semibold flex items-center gap-1.5 transition-colors cursor-pointer border border-rose-200 dark:border-rose-900/60"
+                      title="Soft delete or archive this medicine if entered by mistake"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Archive / Delete Medicine</span>
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowAddModal(false)}
+                      className="px-4 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700 rounded-xl cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-semibold shadow-md shadow-teal-600/20 cursor-pointer"
+                    >
+                      {editingItem 
+                        ? (restockQty > 0 ? `Save & Restock (+${restockQty} Units)` : 'Save Changes')
+                        : 'Save & Stock Medicine'
+                      }
+                    </button>
+                  </div>
+                </div>
               </div>
 
             </form>
@@ -1519,6 +2066,19 @@ export const InventoryView: React.FC = () => {
                 </div>
               </div>
 
+              {/* Smart Merge Warning when Quick-Adding Existing Medicine */}
+              {qaExistingMatch && (
+                <div className="p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 rounded-xl text-emerald-900 dark:text-emerald-100 text-xs flex items-start gap-2.5 animate-in fade-in">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div>
+                    <div className="font-bold">Existing medicine detected in inventory!</div>
+                    <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                      <strong>{qaExistingMatch.brandName}</strong> already exists with <strong>{qaExistingMatch.stockQuantity} {qaExistingMatch.unit}</strong> (Location: {qaExistingMatch.locationShelf || qaExistingMatch.rackNumber}). Submitting will merge <strong>+{qaStock} units</strong> into the master stock and update batch/rate details without creating duplicate rows.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               <div className="flex items-center justify-between pt-3 border-t border-slate-200 dark:border-slate-700">
                 <span className="text-[11px] text-slate-500">
                   Margin: {qaMrp > 0 ? (((qaMrp - qaPtr) / qaMrp) * 100).toFixed(0) : 0}% (₹{(qaMrp - qaPtr).toFixed(2)} / unit)
@@ -1690,30 +2250,6 @@ Volini Gel, Diclofenac Diethylamine, 30g, VOL-330, 2026-10-31, 110.00, 65.00, 45
           item={forecastModalItem}
           transactions={transactions}
           onClose={() => setForecastModalItem(null)}
-          onToast={addToast}
-        />
-      )}
-
-      {/* Category Thumbnail / Imagen Studio Modal */}
-      {selectedThumbItem && (
-        <CategoryThumbnailModal
-          item={selectedThumbItem}
-          inventory={inventory}
-          onClose={() => setSelectedThumbItem(null)}
-          onToast={addToast}
-          onUpdateItemImage={(itemId, imageUrl) => {
-            updateInventoryItem(itemId, { imageUrl });
-            setSelectedThumbItem(null);
-          }}
-        />
-      )}
-
-      {/* Category Thumbnails Gallery Modal */}
-      {showCategoryThumbnailsModal && (
-        <CategoryThumbnailsGalleryModal
-          inventory={inventory}
-          onClose={() => setShowCategoryThumbnailsModal(false)}
-          onSelectCategoryItem={(med) => setSelectedThumbItem(med)}
           onToast={addToast}
         />
       )}

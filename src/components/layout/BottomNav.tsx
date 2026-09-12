@@ -34,7 +34,7 @@ export const BottomNav: React.FC = () => {
     },
     {
       id: 'refills',
-      label: 'Refills',
+      label: 'Refill Tracker',
       icon: MessageSquare,
       badge: overdueRefillsCount > 0 ? overdueRefillsCount : null
     },

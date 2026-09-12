@@ -42,7 +42,7 @@ export const Sidebar: React.FC = () => {
     },
     {
       id: 'refills',
-      label: 'Refill Reminders',
+      label: 'Refill Tracker',
       icon: MessageSquare,
       badge: overdueRefillsCount > 0 ? `${overdueRefillsCount} Overdue` : (dueRefillsCount > 0 ? `${dueRefillsCount} Due` : null),
       badgeColor: overdueRefillsCount > 0 ? 'bg-rose-100 text-rose-800' : 'bg-emerald-100 text-emerald-800'

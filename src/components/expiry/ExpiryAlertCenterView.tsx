@@ -2,6 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { usePharmacy } from '../../context/PharmacyContext';
 import { MedicationInventory, ExpiryAlertTier, DebitNote } from '../../types/pharmacy';
 import { DistributorReturnSlipModal } from './DistributorReturnSlipModal';
+import { EditExpiringMedicineModal } from './EditExpiringMedicineModal';
 import { ExpiryMonthlyBarChart } from './ExpiryMonthlyBarChart';
 import { generateStockistReturnPdf } from '../../utils/stockistReturnPdfGenerator';
 import { 
@@ -28,7 +29,8 @@ import {
   Sparkles,
   X,
   Plus,
-  Mic
+  Mic,
+  Pencil
 } from 'lucide-react';
 import { useVoiceSearch } from '../../hooks/useVoiceSearch';
 
@@ -43,6 +45,8 @@ export const ExpiryAlertCenterView: React.FC = () => {
     applyNearExpiryDiscount, 
     createDebitNoteReturn, 
     quarantineItem,
+    updateInventoryItem,
+    deleteInventoryItem,
     setActiveTab
   } = usePharmacy();
 
@@ -78,6 +82,44 @@ export const ExpiryAlertCenterView: React.FC = () => {
 
   const [viewDebitNote, setViewDebitNote] = useState<DebitNote | null>(null);
 
+  // In-Place Edit Expiring Medicine Modal State
+  const [editingMedicineItem, setEditingMedicineItem] = useState<MedicationInventory | null>(null);
+
+  const handleOpenEditModal = (item: MedicationInventory) => {
+    setEditingMedicineItem(item);
+  };
+
+  const handleSaveEditedMedicine = (updates: Partial<MedicationInventory>) => {
+    if (!editingMedicineItem) return;
+    updateInventoryItem(editingMedicineItem.id, updates);
+
+    const newExpDate = updates.expirationDate || editingMedicineItem.expirationDate;
+    const days = getDaysUntilExpiry(newExpDate);
+    const medName = updates.brandName || editingMedicineItem.brandName;
+
+    if (days > 90) {
+      addToast({
+        type: 'success',
+        title: 'Expiry Extended & Alert Cleared',
+        message: `${medName} shelf-life extended to ${newExpDate}. Moved to Safe Inventory (>90d).`
+      });
+    } else if (days <= 0) {
+      addToast({
+        type: 'warning',
+        title: 'Expired Medicine Saved',
+        message: `${medName} details and stock updated. Item remains listed in Expired tab.`
+      });
+    } else {
+      addToast({
+        type: 'success',
+        title: 'Medicine Record Saved',
+        message: `${medName} updated successfully (${days} days shelf-life remaining).`
+      });
+    }
+
+    setEditingMedicineItem(null);
+  };
+
   // Group inventory by expiry tier & days
   const tieredInventory = useMemo(() => {
     return (inventory || []).map(item => {
@@ -94,9 +136,9 @@ export const ExpiryAlertCenterView: React.FC = () => {
     }).filter(Boolean) as (MedicationInventory & { daysLeft: number; tier: ExpiryAlertTier; ptrRate: number })[];
   }, [inventory, getDaysUntilExpiry, getExpiryTier]);
 
-  // Specific Category Counts
+  // Specific Category Counts (matches filtered items)
   const categoryCounts = useMemo(() => {
-    const list = (tieredInventory || []).filter(i => !i.quarantined && i.stockQuantity > 0);
+    const list = (tieredInventory || []).filter(i => !i.quarantined);
     const expired = list.filter(i => i.daysLeft <= 0);
     const in30Days = list.filter(i => i.daysLeft > 0 && i.daysLeft <= 30);
     const in60Days = list.filter(i => i.daysLeft > 30 && i.daysLeft <= 60);
@@ -605,9 +647,122 @@ export const ExpiryAlertCenterView: React.FC = () => {
 
           </div>
 
-          {/* Actionable Expiry Table */}
+          {/* Actionable Expiry Table & Tap-to-Edit Rows */}
           <div className="bg-white dark:bg-slate-800 rounded-2xl border border-slate-200 dark:border-slate-700 shadow-sm overflow-hidden">
-            <div className="overflow-x-auto">
+            
+            {/* Quick Tap-To-Edit Hint Banner */}
+            <div className="px-4 py-2 bg-teal-50/70 dark:bg-teal-950/40 border-b border-teal-100 dark:border-teal-900/60 flex items-center justify-between text-xs text-teal-800 dark:text-teal-300">
+              <span className="flex items-center gap-1.5 font-medium">
+                <Pencil className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                <span><strong>Direct Tap-To-Edit Enabled:</strong> Click any medicine row or card below to open the comprehensive editor and adjust expiry dates, batch, rack or stock in-place.</span>
+              </span>
+              <span className="text-[11px] font-mono text-teal-600 dark:text-teal-400 font-bold shrink-0 hidden sm:inline">
+                {filteredItems.length} Batches Listed
+              </span>
+            </div>
+
+            {/* Mobile Touch-Friendly Card View (< md screens) */}
+            <div className="block md:hidden divide-y divide-slate-100 dark:divide-slate-700/80">
+              {filteredItems.length === 0 ? (
+                <div className="py-12 text-center text-slate-400 px-4">
+                  <CheckCircle2 className="w-8 h-8 mx-auto text-emerald-500 mb-2 opacity-80" />
+                  <p className="font-semibold text-slate-700 dark:text-slate-200 text-sm">No Batches Found Under Selected Filter</p>
+                  <p className="text-xs text-slate-400 mt-0.5">All stock items are within healthy shelf lifecycles.</p>
+                </div>
+              ) : (
+                filteredItems.map(item => {
+                  const daysBadge = 
+                    item.daysLeft <= 0 ? 'bg-rose-600 text-white font-black' :
+                    item.daysLeft <= 30 ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 font-bold' :
+                    item.daysLeft <= 60 ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/60 dark:text-amber-200 font-semibold' :
+                    item.daysLeft <= 90 ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/60 dark:text-yellow-200' :
+                    'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200';
+
+                  return (
+                    <div
+                      key={item.id}
+                      onClick={() => handleOpenEditModal(item)}
+                      className="p-4 hover:bg-teal-50/50 dark:hover:bg-teal-950/20 active:bg-teal-50/80 transition-colors cursor-pointer space-y-2.5"
+                      title="Tap to edit medicine details & expiry date"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <h4 className="font-extrabold text-sm text-slate-900 dark:text-white leading-tight flex items-center gap-1.5 flex-wrap">
+                            <span>{item.brandName}</span>
+                            <span className="font-mono text-[11px] font-semibold bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-300 px-1.5 py-0.5 rounded border border-slate-200 dark:border-slate-700">
+                              {item.batchNumber}
+                            </span>
+                          </h4>
+                          <p className="text-xs text-slate-500 truncate max-w-xs font-mono mt-0.5">
+                            {item.saltComposition || item.genericName}
+                          </p>
+                        </div>
+
+                        <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs shrink-0 ${daysBadge}`}>
+                          {item.daysLeft <= 0 ? 'EXPIRED' : `${item.daysLeft}d left`}
+                        </span>
+                      </div>
+
+                      <div className="flex items-center justify-between text-xs text-slate-600 dark:text-slate-300 gap-2 flex-wrap pt-1">
+                        <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-teal-50 dark:bg-teal-950/50 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 text-[11px] font-semibold">
+                          <MapPin className="w-3 h-3 text-teal-600" />
+                          <span>{item.locationShelf || `${item.rackNumber}-${item.shelfRow}`}</span>
+                        </div>
+
+                        <div className="font-semibold text-slate-800 dark:text-slate-200 text-xs">
+                          Stock: <span className="font-black">{item.stockQuantity} {item.unit}</span>
+                        </div>
+
+                        <div className="font-mono text-slate-500 text-[11px]">
+                          Exp: <strong className="text-slate-700 dark:text-slate-300">{item.expirationDate}</strong>
+                        </div>
+                      </div>
+
+                      {/* Card Action Buttons (Clicking inside stops row modal) */}
+                      <div 
+                        className="flex items-center justify-between pt-2 border-t border-slate-100 dark:border-slate-700/60"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          onClick={() => handleOpenEditModal(item)}
+                          className="px-2.5 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-teal-700 border border-teal-200 text-xs font-bold flex items-center gap-1 cursor-pointer"
+                        >
+                          <Pencil className="w-3 h-3" />
+                          <span>Edit Details</span>
+                        </button>
+
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDebitNoteModalItem(item);
+                              setReturnQty(item.stockQuantity);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold border border-rose-200"
+                          >
+                            Return
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDiscountModalItem(item);
+                              setDiscountPercent(item.discountPercent || 30);
+                            }}
+                            className="px-2 py-1 rounded-lg bg-amber-50 hover:bg-amber-100 text-amber-700 text-xs font-semibold border border-amber-200"
+                          >
+                            Discount
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Desktop / Tablet Table View (hidden on mobile, visible md+) */}
+            <div className="hidden md:block overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
                 <thead>
                   <tr className="bg-slate-50 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-700 text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider">
@@ -632,12 +787,6 @@ export const ExpiryAlertCenterView: React.FC = () => {
                     </tr>
                   ) : (
                     filteredItems.map(item => {
-                      const tierColor = 
-                        item.tier === 'red' ? 'bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400 border-rose-200 dark:border-rose-800' :
-                        item.tier === 'amber' ? 'bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800' :
-                        item.tier === 'yellow' ? 'bg-yellow-50 dark:bg-yellow-950/40 text-yellow-700 dark:text-yellow-400 border-yellow-200 dark:border-yellow-800' :
-                        'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800';
-
                       const daysBadge = 
                         item.daysLeft <= 0 ? 'bg-rose-600 text-white font-black' :
                         item.daysLeft <= 30 ? 'bg-rose-100 text-rose-800 dark:bg-rose-900/60 dark:text-rose-200 font-bold' :
@@ -646,17 +795,25 @@ export const ExpiryAlertCenterView: React.FC = () => {
                         'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/60 dark:text-emerald-200';
 
                       return (
-                        <tr key={item.id} className="hover:bg-slate-50/70 dark:hover:bg-slate-750 transition-colors">
+                        <tr 
+                          key={item.id} 
+                          onClick={() => handleOpenEditModal(item)}
+                          className="hover:bg-teal-50/50 dark:hover:bg-teal-950/20 active:bg-teal-50/70 transition-colors cursor-pointer group"
+                          title="Click row to edit medicine details, batch, rack location & expiry date"
+                        >
                           
                           {/* Medicine & Salt */}
                           <td className="py-3 px-4">
-                            <div className="font-bold text-slate-900 dark:text-white text-sm">
-                              {item.brandName}
+                            <div className="font-bold text-slate-900 dark:text-white text-sm flex items-center gap-1.5 flex-wrap">
+                              <span>{item.brandName}</span>
                               {item.isNearExpiryDiscount && (
-                                <span className="ml-2 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-white">
+                                <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-500 text-white">
                                   <Percent className="w-3 h-3" /> {item.discountPercent}% OFF
                                 </span>
                               )}
+                              <span className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] text-teal-600 dark:text-teal-400 font-bold bg-teal-50 dark:bg-teal-950/60 px-1.5 py-0.5 rounded border border-teal-200 dark:border-teal-800 flex items-center gap-0.5">
+                                <Pencil className="w-2.5 h-2.5" /> Tap to Edit
+                              </span>
                             </div>
                             <div className="text-slate-500 dark:text-slate-400 text-xs truncate max-w-xs font-mono">
                               {item.saltComposition || item.genericName}
@@ -705,9 +862,21 @@ export const ExpiryAlertCenterView: React.FC = () => {
                           </td>
 
                           {/* Action Buttons */}
-                          <td className="py-3 px-4 text-right">
+                          <td className="py-3 px-4 text-right" onClick={(e) => e.stopPropagation()}>
                             <div className="flex items-center justify-end gap-1.5">
                               
+                              {/* Direct In-Place Edit Action Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditModal(item)}
+                                id={`edit-medicine-btn-${item.id}`}
+                                className="px-2.5 py-1.5 rounded-lg bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 dark:hover:bg-teal-900 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 text-xs font-bold transition-colors flex items-center gap-1 cursor-pointer"
+                                title="Edit Medicine Details, Expiry Date & Rack Location"
+                              >
+                                <Pencil className="w-3 h-3" />
+                                <span>Edit</span>
+                              </button>
+
                               {/* Return to Distributor Button */}
                               <button
                                 onClick={() => {
@@ -715,7 +884,7 @@ export const ExpiryAlertCenterView: React.FC = () => {
                                   setReturnQty(item.stockQuantity);
                                 }}
                                 id={`return-distributor-btn-${item.id}`}
-                                className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold transition-colors flex items-center gap-1"
+                                className="px-2.5 py-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/60 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-300 border border-rose-200 dark:border-rose-800 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                                 title="Issue Supplier Return / Debit Note"
                               >
                                 <RotateCcw className="w-3 h-3" />
@@ -729,7 +898,7 @@ export const ExpiryAlertCenterView: React.FC = () => {
                                   setDiscountPercent(item.discountPercent || 30);
                                 }}
                                 id={`apply-discount-btn-${item.id}`}
-                                className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-semibold transition-colors flex items-center gap-1"
+                                className="px-2.5 py-1.5 rounded-lg bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/60 dark:hover:bg-amber-900 text-amber-700 dark:text-amber-300 border border-amber-200 dark:border-amber-800 text-xs font-semibold transition-colors flex items-center gap-1 cursor-pointer"
                                 title="Apply Clearance Discount"
                               >
                                 <Tag className="w-3 h-3" />
@@ -740,7 +909,7 @@ export const ExpiryAlertCenterView: React.FC = () => {
                               <button
                                 onClick={() => quarantineItem(item.id, 'Near-Expiry Disposed')}
                                 id={`quarantine-btn-${item.id}`}
-                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors cursor-pointer"
                                 title="Quarantine / Mark Disposed"
                               >
                                 <ShieldAlert className="w-3.5 h-3.5" />
@@ -1058,6 +1227,24 @@ export const ExpiryAlertCenterView: React.FC = () => {
         onReturnGenerated={(note) => {
           setViewDebitNote(note);
           setActiveSubTab('debit_notes');
+        }}
+      />
+
+      {/* Comprehensive In-Place Edit Expiring Medicine Modal */}
+      <EditExpiringMedicineModal
+        isOpen={!!editingMedicineItem}
+        onClose={() => setEditingMedicineItem(null)}
+        item={editingMedicineItem}
+        onSave={handleSaveEditedMedicine}
+        onInitiateReturn={(item) => {
+          setDebitNoteModalItem(item);
+          setReturnQty(item.stockQuantity);
+        }}
+        onQuarantine={(id, reason) => {
+          quarantineItem(id, reason);
+        }}
+        onArchive={(id) => {
+          deleteInventoryItem(id, true);
         }}
       />
 

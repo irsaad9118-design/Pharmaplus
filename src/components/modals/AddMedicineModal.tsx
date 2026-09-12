@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { usePharmacy } from '../../context/PharmacyContext';
+import { findExistingInventoryMatch } from '../../utils/inventoryDeduplication';
 import { 
   X, 
   Plus, 
@@ -31,7 +32,7 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
   initialBrandName = '',
   onSuccess
 }) => {
-  const { addInventoryItem, addToast } = usePharmacy();
+  const { inventory, addInventoryItem, addToast } = usePharmacy();
 
   // Form State
   const [brandName, setBrandName] = useState(initialBrandName);
@@ -40,6 +41,11 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
   const [dosageForm, setDosageForm] = useState<DosageForm>('Tablet');
   const [category, setCategory] = useState('General');
   const [scheduleClass, setScheduleClass] = useState<ScheduleClass>('Rx');
+
+  const existingMatch = useMemo(() => {
+    if (!brandName.trim()) return null;
+    return findExistingInventoryMatch(inventory, { brandName, saltComposition });
+  }, [inventory, brandName, saltComposition]);
   
   // Batch & Expiry
   const [batchNumber, setBatchNumber] = useState(
@@ -222,6 +228,19 @@ export const AddMedicineModal: React.FC<AddMedicineModalProps> = ({
                   placeholder="e.g. Dolo 650, Augmentin 625 Duo, Pan 40"
                   className="w-full px-3.5 py-2.5 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-sm font-semibold text-slate-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-teal-500"
                 />
+
+                {/* Existing medicine match alert */}
+                {existingMatch && (
+                  <div className="mt-2 p-3 bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-300 dark:border-emerald-700 rounded-xl text-emerald-900 dark:text-emerald-100 text-xs flex items-start gap-2.5 animate-in fade-in">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="font-bold">Existing medicine detected in inventory!</div>
+                      <p className="text-[11px] text-emerald-700 dark:text-emerald-300 mt-0.5">
+                        <strong>{existingMatch.brandName}</strong> already exists with <strong>{existingMatch.stockQuantity} {existingMatch.unit}</strong> (Location: {existingMatch.locationShelf || existingMatch.rackNumber}). Submitting will merge <strong>+{stockNum} units</strong> into the master stock and update batch/rate details without creating duplicate rows.
+                      </p>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Salt / Generic Composition */}

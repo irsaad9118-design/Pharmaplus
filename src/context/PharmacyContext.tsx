@@ -39,6 +39,24 @@ import { useAuth } from './AuthContext';
 import confetti from 'canvas-confetti';
 import { findExactSaltSubstitutes } from '../utils/saltSubstituteEngine';
 import { recordStoreSaleInRegistry } from '../utils/storeRegistry';
+import {
+  findExistingInventoryMatch,
+  mergeInventoryItem,
+  deduplicateMasterInventory,
+  isMatchingMedicine
+} from '../utils/inventoryDeduplication';
+
+export interface MergeBannerData {
+  brandName: string;
+  previousStock: number;
+  newStock: number;
+  addedStock: number;
+  batchNumber: string;
+  unit?: string;
+  timestamp?: number;
+  isNewBatchAdded?: boolean;
+  batchCount?: number;
+}
 
 interface ToastNotification {
   id: string;
@@ -126,8 +144,11 @@ interface PharmacyContextType {
   addBulkInventoryItems: (items: (Partial<MedicationInventory> & { brandName: string })[]) => MedicationInventory[];
   updateInventoryItem: (id: string, updates: Partial<MedicationInventory>) => void;
   updateInventoryStock: (id: string, changeQty: number, reason?: string) => void;
+  deleteInventoryItem: (id: string, softArchive?: boolean) => void;
   updateRackPosition: (id: string, rack: string, shelf: string, bin: string) => void;
   findSubstitutes: (itemOrSalt: MedicationInventory | string, excludeId?: string) => MedicationInventory[];
+  lastMergeBanner: MergeBannerData | null;
+  setLastMergeBanner: (banner: MergeBannerData | null) => void;
 
   // 90-Day Expiry Engine Actions
   getExpiryTier: (expiryDate: string) => ExpiryAlertTier;
@@ -218,18 +239,21 @@ export const PharmacyProvider: React.FC<{ children: ReactNode }> = ({ children }
 
   const [inventory, setInventory] = useState<MedicationInventory[]>(() => {
     const saved = localStorage.getItem(`pharmpulse_${storeId}_inventory`);
-    if (!saved) return INITIAL_INVENTORY;
+    if (!saved) return deduplicateMasterInventory(INITIAL_INVENTORY);
     try {
       const parsed: MedicationInventory[] = JSON.parse(saved);
       // Ensure newly configured reference items (e.g. Pacimol 650, Crocin 650 Advance) are available
       const existingIds = new Set(parsed.map(i => i.id));
       const existingBrands = new Set(parsed.map(i => i.brandName.toLowerCase()));
       const missing = INITIAL_INVENTORY.filter(i => !existingIds.has(i.id) && !existingBrands.has(i.brandName.toLowerCase()));
-      return missing.length > 0 ? [...parsed, ...missing] : parsed;
+      const combined = missing.length > 0 ? [...parsed, ...missing] : parsed;
+      return deduplicateMasterInventory(combined);
     } catch {
-      return INITIAL_INVENTORY;
+      return deduplicateMasterInventory(INITIAL_INVENTORY);
     }
   });
+
+  const [lastMergeBanner, setLastMergeBanner] = useState<MergeBannerData | null>(null);
 
   const [prescribers, setPrescribers] = useState<Prescriber[]>(() => {
     const saved = localStorage.getItem(`pharmpulse_${storeId}_prescribers`);
@@ -1068,6 +1092,56 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
 
   // Inventory & Physical Rack Management
   const addInventoryItem = (itemData: Partial<MedicationInventory> & { brandName: string }): MedicationInventory => {
+    // 1. SMART DEDUPLICATION: Check if medicine name or salt composition already exists
+    const existing = findExistingInventoryMatch(inventory, itemData);
+
+    if (existing) {
+      // Do NOT create a duplicate record or split entries across multiple rows.
+      // Automatically update/merge the existing medicine entry: add new quantity to current stock, update batch, expiry, or purchase price.
+      const mergeResult = mergeInventoryItem(existing, itemData);
+      const mergedItem = mergeResult.mergedItem;
+
+      setInventory(prev => prev.map(item => item.id === existing.id ? mergedItem : item));
+
+      fetch(`/api/store/${storeId}/inventory/${existing.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(mergedItem)
+      }).catch(() => {});
+
+      logActivity(
+        'Medicine Stock Merged',
+        `Existing medicine found: ${existing.brandName}. Stock quantity updated from ${mergeResult.previousStock} to ${mergeResult.newStock} (+${mergeResult.addedStock}). Batch: ${mergedItem.batchNumber}`,
+        'Inventory'
+      );
+
+      // Requirement: Show a confirmation banner: "Existing medicine found. Stock quantity updated."
+      const mergeMsg = mergeResult.isNewBatchAdded
+        ? `Existing medicine found: ${existing.brandName}. Attached new batch ${mergedItem.batchNumber} (+${mergeResult.addedStock} ${mergedItem.unit}) under master record.`
+        : `Existing medicine found: ${existing.brandName}. Stock quantity updated from ${mergeResult.previousStock} to ${mergeResult.newStock} (+${mergeResult.addedStock}).`;
+
+      addToast({
+        type: 'success',
+        title: mergeResult.isNewBatchAdded ? 'New Batch Attached to Existing Medicine' : 'Existing Medicine Found',
+        message: mergeResult.isNewBatchAdded ? `Attached new batch ${mergedItem.batchNumber}. Total stock: ${mergeResult.newStock} ${mergedItem.unit}.` : 'Existing medicine found. Stock quantity updated.'
+      });
+
+      setLastMergeBanner({
+        brandName: mergedItem.brandName,
+        previousStock: mergeResult.previousStock,
+        newStock: mergeResult.newStock,
+        addedStock: mergeResult.addedStock,
+        batchNumber: mergedItem.batchNumber,
+        unit: mergedItem.unit,
+        timestamp: Date.now(),
+        isNewBatchAdded: mergeResult.isNewBatchAdded,
+        batchCount: mergeResult.batchCount
+      });
+
+      return mergedItem;
+    }
+
+    // Otherwise: New master item creation
     const newId = 'inv-' + Math.floor(1000 + Math.random() * 9000);
     const rack = itemData.rackNumber || 'Rack A';
     const shelf = itemData.shelfRow || 'Shelf 1';
@@ -1079,7 +1153,7 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     const newItem: MedicationInventory = {
       id: newId,
       ndc: itemData.ndc || '00000-000-00',
-      brandName: itemData.brandName,
+      brandName: itemData.brandName.trim(),
       genericName: itemData.genericName || itemData.saltComposition || itemData.brandName,
       saltComposition: itemData.saltComposition || itemData.genericName || itemData.brandName,
       strength: itemData.strength || '500 mg',
@@ -1132,63 +1206,114 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
   };
 
   const addBulkInventoryItems = (itemsData: (Partial<MedicationInventory> & { brandName: string })[]): MedicationInventory[] => {
-    const createdItems: MedicationInventory[] = itemsData.map((itemData, index) => {
-      const newId = 'inv-' + (Date.now() + index);
-      const rack = itemData.rackNumber || 'Rack A';
-      const shelf = itemData.shelfRow || 'Shelf 1';
-      const bin = itemData.boxBin || 'Bin 01';
-      const locationShelf = itemData.locationShelf || `${rack}-${shelf.replace(/[^0-9]/g, '') || '1'} • ${bin}`;
-      const purchaseRate = itemData.purchaseRate ?? ((itemData.mrp ?? 50) * 0.65);
-      const mrp = itemData.mrp ?? 50;
+    let mergedCount = 0;
+    let addedCount = 0;
+    let lastMergedMedicine: MedicationInventory | null = null;
+    let lastMergedPrevStock = 0;
+    let lastMergedAddedStock = 0;
+    const finalResultItems: MedicationInventory[] = [];
 
-      return {
-        id: newId,
-        ndc: itemData.ndc || '00000-000-00',
-        brandName: itemData.brandName,
-        genericName: itemData.genericName || itemData.saltComposition || itemData.brandName,
-        saltComposition: itemData.saltComposition || itemData.genericName || itemData.brandName,
-        strength: itemData.strength || '500 mg',
-        dosageForm: itemData.dosageForm || 'Tablet',
-        category: itemData.category || 'General Pharmacy',
-        scheduleClass: itemData.scheduleClass || 'Rx',
-        batchNumber: itemData.batchNumber || ('BT-' + Math.floor(1000 + Math.random() * 9000)),
-        mfgDate: itemData.mfgDate || itemData.manufacturingDate || '2025-01-01',
-        manufacturingDate: itemData.manufacturingDate || itemData.mfgDate || '2025-01-01',
-        expirationDate: itemData.expirationDate || '2027-12-31',
-        mrp: mrp,
-        purchaseRate: purchaseRate,
-        costPrice: purchaseRate,
-        sellingPrice: itemData.sellingPrice || mrp,
-        stockQuantity: itemData.stockQuantity ?? 50,
-        unit: itemData.unit || 'Strips',
-        packSize: itemData.packSize ?? 10,
-        reorderLevel: itemData.reorderLevel ?? 15,
-        minAlertLevel: itemData.minAlertLevel ?? 15,
-        gstRate: itemData.gstRate ?? 12,
-        hsnCode: itemData.hsnCode || '300490',
-        supplierName: itemData.supplierName || 'Distributor Import',
-        supplierContact: itemData.supplierContact || '+91 98765 43210',
-        rackNumber: rack,
-        shelfRow: shelf,
-        boxBin: bin,
-        locationShelf: locationShelf,
-        manufacturer: itemData.manufacturer || 'Pharmaceuticals',
-        storageCondition: itemData.storageCondition || 'Room Temp (15-25°C)',
-        autoReorder: itemData.autoReorder ?? true,
-        quarantined: false,
-        isNearExpiryDiscount: itemData.isNearExpiryDiscount ?? false,
-        discountPercent: itemData.discountPercent ?? 0
-      };
+    setInventory(prev => {
+      const workingList = [...prev];
+
+      for (const itemData of itemsData) {
+        if (!itemData.brandName?.trim()) continue;
+
+        // Check if item matches existing in workingList
+        const existingIdx = workingList.findIndex(item => isMatchingMedicine(item, itemData));
+
+        if (existingIdx !== -1) {
+          const mergeResult = mergeInventoryItem(workingList[existingIdx], itemData);
+          workingList[existingIdx] = mergeResult.mergedItem;
+          finalResultItems.push(mergeResult.mergedItem);
+          mergedCount++;
+          lastMergedMedicine = mergeResult.mergedItem;
+          lastMergedPrevStock = mergeResult.previousStock;
+          lastMergedAddedStock = mergeResult.addedStock;
+        } else {
+          const newId = 'inv-' + (Date.now() + Math.floor(Math.random() * 10000));
+          const rack = itemData.rackNumber || 'Rack A';
+          const shelf = itemData.shelfRow || 'Shelf 1';
+          const bin = itemData.boxBin || 'Bin 01';
+          const locationShelf = itemData.locationShelf || `${rack}-${shelf.replace(/[^0-9]/g, '') || '1'} • ${bin}`;
+          const purchaseRate = itemData.purchaseRate ?? ((itemData.mrp ?? 50) * 0.65);
+          const mrp = itemData.mrp ?? 50;
+
+          const created: MedicationInventory = {
+            id: newId,
+            ndc: itemData.ndc || '00000-000-00',
+            brandName: itemData.brandName.trim(),
+            genericName: itemData.genericName || itemData.saltComposition || itemData.brandName,
+            saltComposition: itemData.saltComposition || itemData.genericName || itemData.brandName,
+            strength: itemData.strength || '500 mg',
+            dosageForm: itemData.dosageForm || 'Tablet',
+            category: itemData.category || 'General Pharmacy',
+            scheduleClass: itemData.scheduleClass || 'Rx',
+            batchNumber: itemData.batchNumber || ('BT-' + Math.floor(1000 + Math.random() * 9000)),
+            mfgDate: itemData.mfgDate || itemData.manufacturingDate || '2025-01-01',
+            manufacturingDate: itemData.manufacturingDate || itemData.mfgDate || '2025-01-01',
+            expirationDate: itemData.expirationDate || '2027-12-31',
+            mrp: mrp,
+            purchaseRate: purchaseRate,
+            costPrice: purchaseRate,
+            sellingPrice: itemData.sellingPrice || mrp,
+            stockQuantity: itemData.stockQuantity ?? 50,
+            unit: itemData.unit || 'Strips',
+            packSize: itemData.packSize ?? 10,
+            reorderLevel: itemData.reorderLevel ?? 15,
+            minAlertLevel: itemData.minAlertLevel ?? 15,
+            gstRate: itemData.gstRate ?? 12,
+            hsnCode: itemData.hsnCode || '300490',
+            supplierName: itemData.supplierName || 'Distributor Import',
+            supplierContact: itemData.supplierContact || '+91 98765 43210',
+            rackNumber: rack,
+            shelfRow: shelf,
+            boxBin: bin,
+            locationShelf: locationShelf,
+            manufacturer: itemData.manufacturer || 'Pharmaceuticals',
+            storageCondition: itemData.storageCondition || 'Room Temp (15-25°C)',
+            autoReorder: itemData.autoReorder ?? true,
+            quarantined: false,
+            isNearExpiryDiscount: itemData.isNearExpiryDiscount ?? false,
+            discountPercent: itemData.discountPercent ?? 0
+          };
+
+          workingList.unshift(created);
+          finalResultItems.push(created);
+          addedCount++;
+        }
+      }
+
+      return workingList;
     });
 
-    setInventory(prev => [...createdItems, ...prev]);
-    logActivity('Bulk Inventory Added', `Successfully imported ${createdItems.length} medicines to inventory`, 'Inventory');
-    addToast({
-      type: 'success',
-      title: 'Bulk Entry Completed',
-      message: `Added ${createdItems.length} items to pharmacy inventory and rack layout.`
-    });
-    return createdItems;
+    logActivity('Bulk Inventory Processed', `Processed ${itemsData.length} items (${mergedCount} merged into existing stock, ${addedCount} new)`, 'Inventory');
+
+    if (mergedCount > 0 && lastMergedMedicine) {
+      const med = lastMergedMedicine as MedicationInventory;
+      setLastMergeBanner({
+        brandName: med.brandName,
+        previousStock: lastMergedPrevStock,
+        newStock: med.stockQuantity,
+        addedStock: lastMergedAddedStock,
+        batchNumber: med.batchNumber,
+        unit: med.unit,
+        timestamp: Date.now()
+      });
+      addToast({
+        type: 'success',
+        title: 'Existing Medicine Found',
+        message: 'Existing medicine found. Stock quantity updated.'
+      });
+    } else {
+      addToast({
+        type: 'success',
+        title: 'Bulk Entry Completed',
+        message: `Added ${addedCount} items to pharmacy inventory and rack layout.`
+      });
+    }
+
+    return finalResultItems;
   };
 
   const updateInventoryItem = (id: string, updates: Partial<MedicationInventory>) => {
@@ -1204,27 +1329,63 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
       if (updates.purchaseRate !== undefined) {
         updated.costPrice = updates.purchaseRate;
       }
+      if (updates.mrp !== undefined && updates.sellingPrice === undefined) {
+        updated.sellingPrice = updates.mrp;
+      }
+
+      // Synchronize batches array if not explicitly provided
+      if (updates.batches) {
+        updated.batches = updates.batches;
+      } else if (item.batches && item.batches.length > 0) {
+        const oldBatchNumber = item.batchNumber;
+        const targetBatchIndex = item.batches.findIndex(b => b.batchNumber === oldBatchNumber);
+        const activeIdx = targetBatchIndex !== -1 ? targetBatchIndex : 0;
+        
+        updated.batches = item.batches.map((b, idx) => {
+          if (idx === activeIdx) {
+            return {
+              ...b,
+              batchNumber: updates.batchNumber !== undefined ? updates.batchNumber : b.batchNumber,
+              expirationDate: updates.expirationDate !== undefined ? updates.expirationDate : b.expirationDate,
+              stockQuantity: updates.stockQuantity !== undefined ? updates.stockQuantity : b.stockQuantity,
+              mrp: updates.mrp !== undefined ? updates.mrp : b.mrp,
+              purchaseRate: updates.purchaseRate !== undefined ? updates.purchaseRate : b.purchaseRate
+            };
+          }
+          return b;
+        });
+      }
+
       return updated;
     }));
+
     fetch(`/api/store/${storeId}/inventory/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(updates)
     }).catch(() => {});
 
-    logActivity('Medicine Inventory Updated', `Updated stock/location for item ID ${id}`, 'Inventory');
-    addToast({
-      type: 'info',
-      title: 'Inventory Saved',
-      message: 'Medicine details, physical coordinates, and rates updated.'
-    });
+    logActivity('Medicine Inventory Updated', `Updated stock/expiry/location for item ID ${id}`, 'Inventory');
   };
 
-  const updateInventoryStock = (id: string, changeQty: number, reason?: string) => {
+  const updateInventoryStock = (id: string, changeQty: number, reason?: string, batchNumber?: string) => {
     setInventory(prev => prev.map(item => {
       if (item.id !== id) return item;
       const newStock = Math.max(0, item.stockQuantity + changeQty);
-      return { ...item, stockQuantity: newStock };
+      let updatedBatches = item.batches;
+      if (updatedBatches && updatedBatches.length > 0) {
+        if (batchNumber) {
+          const matchIdx = updatedBatches.findIndex(b => b.batchNumber === batchNumber);
+          if (matchIdx !== -1) {
+            updatedBatches = updatedBatches.map(b => b.batchNumber === batchNumber ? { ...b, stockQuantity: Math.max(0, b.stockQuantity + changeQty) } : b);
+          } else {
+            updatedBatches = updatedBatches.map((b, idx) => idx === 0 ? { ...b, stockQuantity: Math.max(0, b.stockQuantity + changeQty) } : b);
+          }
+        } else {
+          updatedBatches = updatedBatches.map((b, idx) => idx === 0 ? { ...b, stockQuantity: Math.max(0, b.stockQuantity + changeQty) } : b);
+        }
+      }
+      return { ...item, stockQuantity: newStock, batches: updatedBatches };
     }));
     const target = inventory.find(i => i.id === id);
     logActivity('Stock Quantity Adjusted', `Adjusted ${target?.brandName || id} by ${changeQty > 0 ? '+' : ''}${changeQty} (${reason || 'Manual Adjustment'})`, 'Inventory');
@@ -1249,6 +1410,40 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
       title: 'Rack Coordinates Updated',
       message: `${target?.brandName} now located at ${formatted}.`
     });
+  };
+
+  const deleteInventoryItem = (id: string, softArchive: boolean = true) => {
+    const target = inventory.find(i => i.id === id);
+    if (!target) return;
+
+    if (softArchive) {
+      setInventory(prev => prev.map(item => {
+        if (item.id !== id) return item;
+        return {
+          ...item,
+          isArchived: true,
+          archivedAt: new Date().toISOString()
+        };
+      }));
+      logActivity('Medicine Archived', `Archived ${target.brandName} (Batch: ${target.batchNumber}) from active inventory`, 'Inventory');
+      addToast({
+        type: 'info',
+        title: 'Medicine Archived',
+        message: `${target.brandName} has been archived and removed from active inventory.`
+      });
+    } else {
+      setInventory(prev => prev.filter(item => item.id !== id));
+      logActivity('Medicine Deleted', `Permanently removed ${target.brandName} (Batch: ${target.batchNumber})`, 'Inventory');
+      addToast({
+        type: 'info',
+        title: 'Medicine Deleted',
+        message: `${target.brandName} has been removed from inventory.`
+      });
+    }
+
+    fetch(`/api/store/${storeId}/inventory/${id}`, {
+      method: 'DELETE'
+    }).catch(() => {});
   };
 
   // Smart Stock Substitute Engine (Bioequivalent Exact Salt Matching)
@@ -1555,7 +1750,7 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     // Deduct stock for all items
     transactionData.items.forEach(item => {
       if (item.inventoryId) {
-        updateInventoryStock(item.inventoryId, -item.quantity, `POS Sale ${newInvoiceNo}`);
+        updateInventoryStock(item.inventoryId, -item.quantity, `POS Sale ${newInvoiceNo}`, item.batchNumber);
       }
     });
 
@@ -2380,8 +2575,11 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
         addBulkInventoryItems,
         updateInventoryItem,
         updateInventoryStock,
+        deleteInventoryItem,
         updateRackPosition,
         findSubstitutes,
+        lastMergeBanner,
+        setLastMergeBanner,
 
         getExpiryTier,
         getDaysUntilExpiry,

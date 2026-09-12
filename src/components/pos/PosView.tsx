@@ -35,10 +35,13 @@ import {
   Gift,
   Sparkles,
   RotateCcw,
-  Mic
+  Mic,
+  Layers,
+  Maximize2
 } from 'lucide-react';
 import { 
   MedicationInventory, 
+  InventoryBatch,
   PosBillItem, 
   PointOfSaleTransaction, 
   PaymentMode 
@@ -142,7 +145,7 @@ export const PosView: React.FC = () => {
     return dateStr;
   };
 
-  // Filter medicines by Brand Name, Salt/Generic composition, Batch, or Location
+  // Filter medicines by Brand Name, Salt/Generic composition, Batch, or Rack Location
   const searchResults = useMemo(() => {
     const q = (searchTerm || '').toLowerCase().trim();
     const invList = inventory || [];
@@ -155,8 +158,11 @@ export const PosView: React.FC = () => {
       const matchSalt = (item?.saltComposition || item?.genericName || '').toLowerCase().includes(q);
       const matchBatch = (item?.batchNumber || '').toLowerCase().includes(q);
       const matchRack = (item?.locationShelf || `${item?.rackNumber || ''} / ${item?.shelfRow || ''}`).toLowerCase().includes(q);
+      const matchRackNumber = (item?.rackNumber || '').toLowerCase().includes(q);
+      const matchShelfRow = (item?.shelfRow || '').toLowerCase().includes(q);
       const matchCat = (item?.category || '').toLowerCase().includes(q);
-      return matchBrand || matchSalt || matchBatch || matchRack || matchCat;
+      const matchSecondaryBatches = (item?.batches || []).some(b => (b.batchNumber || '').toLowerCase().includes(q));
+      return matchBrand || matchSalt || matchBatch || matchRack || matchRackNumber || matchShelfRow || matchCat || matchSecondaryBatches;
     });
   }, [inventory, searchTerm]);
 
@@ -309,13 +315,27 @@ export const PosView: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [searchResults, highlightedIndex, cartItems, substituteTargetItem, showCompletedModal, showThermalModal, isAddMedicineModalOpen, isReturnModalOpen, isCartOpen, searchTerm, paymentMode]);
 
-  // 1-Click Add Item to Active Bill (with Offers & Schemes Engine)
-  const handleAddItemToCart = (item: MedicationInventory) => {
-    if (item.stockQuantity <= 0) {
+  // 1-Click Add Item to Active Bill (with Multi-Batch Selection & Offers Engine)
+  const handleAddItemToCart = (item: MedicationInventory, selectedBatch?: InventoryBatch) => {
+    if (item.quarantined) {
+      addToast({
+        type: 'error',
+        title: 'Quarantined Item',
+        message: 'This batch has been quarantined and cannot be billed.'
+      });
+      return;
+    }
+
+    const batchToUse = selectedBatch || (item.batches && item.batches.length > 0 ? item.batches[0] : null);
+    const batchNumber = batchToUse ? batchToUse.batchNumber : item.batchNumber;
+    const expirationDate = batchToUse ? batchToUse.expirationDate : item.expirationDate;
+    const availableStock = batchToUse ? batchToUse.stockQuantity : item.stockQuantity;
+
+    if (availableStock <= 0) {
       addToast({
         type: 'warning',
         title: 'Out of Stock',
-        message: `${item.brandName} is currently out of stock. Use salt substitute finder.`
+        message: `${item.brandName} (Batch: ${batchNumber}) is currently out of stock. Use salt substitute finder.`
       });
       setSubstituteTargetItem(item);
       return;
@@ -371,33 +391,32 @@ export const PosView: React.FC = () => {
     };
 
     setCartItems(prev => {
-      const existing = prev.find(i => i.inventoryId === item.id);
-      if (existing) {
+      const existingIdx = prev.findIndex(i => i.inventoryId === item.id && i.batchNumber === batchNumber);
+      if (existingIdx !== -1) {
+        const existing = prev[existingIdx];
         const nextQty = existing.quantity + 1;
-        if (nextQty > item.stockQuantity) {
+        if (nextQty > availableStock) {
           addToast({
             type: 'warning',
             title: 'Stock Limit Reached',
-            message: `Only ${item.stockQuantity} units available in ${item.locationShelf || item.rackNumber}.`
+            message: `Only ${availableStock} units available for Batch ${batchNumber}.`
           });
           return prev;
         }
         const calc = computeItemOffer(nextQty);
-        return prev.map(i => 
-          i.inventoryId === item.id 
-            ? { 
-                ...i, 
-                quantity: nextQty,
-                unitPrice: calc.unitPrice,
-                offerDiscountAmount: calc.offerDiscountAmount,
-                freeQuantity: calc.freeQuantity,
-                totalSavings: calc.totalSavings,
-                gstAmount: calc.gstAmount,
-                totalPrice: calc.totalPrice,
-                totalAmount: calc.totalAmount
-              }
-            : i
-        );
+        const updated = [...prev];
+        updated[existingIdx] = {
+          ...existing,
+          quantity: nextQty,
+          unitPrice: calc.unitPrice,
+          offerDiscountAmount: calc.offerDiscountAmount,
+          freeQuantity: calc.freeQuantity,
+          totalSavings: calc.totalSavings,
+          gstAmount: calc.gstAmount,
+          totalPrice: calc.totalPrice,
+          totalAmount: calc.totalAmount
+        };
+        return updated;
       } else {
         const calc = computeItemOffer(1);
         const newItem: PosBillItem = {
@@ -405,9 +424,9 @@ export const PosView: React.FC = () => {
           brandName: item.brandName,
           medicationName: item.brandName,
           saltComposition: item.saltComposition || item.genericName,
-          batchNumber: item.batchNumber,
-          expirationDate: item.expirationDate,
-          expiryDate: item.expirationDate,
+          batchNumber: batchNumber,
+          expirationDate: expirationDate,
+          expiryDate: expirationDate,
           unitPrice: calc.unitPrice,
           mrp: mrp,
           originalPrice: mrp,
@@ -438,29 +457,39 @@ export const PosView: React.FC = () => {
     addToast({
       type: 'success',
       title: 'Added to Bill',
-      message: `${item.brandName} added (Location: ${item.locationShelf || item.rackNumber})`
+      message: `${item.brandName} (Batch: ${batchNumber}) added (Rack: ${item.locationShelf || item.rackNumber})`
     });
   };
 
   // Stepper Quantity Handler
-  const handleUpdateQuantity = (inventoryId: string, newQty: number) => {
+  const handleUpdateQuantity = (inventoryId: string, newQty: number, batchNumber?: string) => {
     if (newQty <= 0) {
-      handleRemoveItem(inventoryId);
+      handleRemoveItem(inventoryId, batchNumber);
       return;
     }
 
     const targetInv = inventory.find(i => i.id === inventoryId);
-    if (targetInv && newQty > targetInv.stockQuantity) {
+    let maxAllowed = targetInv?.stockQuantity || 999;
+    if (targetInv?.batches && batchNumber) {
+      const bMatch = targetInv.batches.find(b => b.batchNumber === batchNumber);
+      if (bMatch) maxAllowed = bMatch.stockQuantity;
+    }
+
+    if (newQty > maxAllowed) {
       addToast({
         type: 'warning',
         title: 'Stock Limit Reached',
-        message: `Only ${targetInv.stockQuantity} units available in inventory.`
+        message: `Only ${maxAllowed} units available for batch ${batchNumber || ''}.`
       });
       return;
     }
 
     setCartItems(prev => prev.map(item => {
-      if (item.inventoryId !== inventoryId) return item;
+      const isMatch = batchNumber
+        ? (item.inventoryId === inventoryId && item.batchNumber === batchNumber)
+        : (item.inventoryId === inventoryId);
+      if (!isMatch) return item;
+
       const mrp = item.mrp || item.originalPrice || item.unitPrice;
       const offerType = item.offerType || 'none';
       const offerValue = item.offerValue || 0;
@@ -510,11 +539,16 @@ export const PosView: React.FC = () => {
   };
 
   // Remove Item
-  const handleRemoveItem = (inventoryId: string) => {
-    setCartItems(prev => prev.filter(i => i.inventoryId !== inventoryId));
+  const handleRemoveItem = (inventoryId: string, batchNumber?: string) => {
+    setCartItems(prev => prev.filter(i => {
+      if (batchNumber) {
+        return !(i.inventoryId === inventoryId && i.batchNumber === batchNumber);
+      }
+      return i.inventoryId !== inventoryId;
+    }));
   };
 
-  // Invoice Financial Calculations (Subtotal, GST 5%/12%/18%, Total Offer Savings, Round-off, Grand Total)
+  // Invoice Financial Calculations (Subtotal, GST 5%/12%/18%, CGST/SGST 50-50 split, Discount, Round-off, Grand Total)
   const invoiceSummary = useMemo(() => {
     const items = cartItems || [];
     const subtotal = items.reduce((sum, it) => sum + ((it?.unitPrice || 0) * (it?.quantity || 0)), 0);
@@ -525,6 +559,8 @@ export const PosView: React.FC = () => {
     const gst12 = items.filter(i => i?.gstRate === 12).reduce((sum, i) => sum + (((i?.unitPrice || 0) * (i?.quantity || 0)) * 0.12), 0);
     const gst18 = items.filter(i => i?.gstRate === 18).reduce((sum, i) => sum + (((i?.unitPrice || 0) * (i?.quantity || 0)) * 0.18), 0);
     const totalGst = gst5 + gst12 + gst18;
+    const cgst = totalGst / 2;
+    const sgst = totalGst / 2;
 
     const discountAmount = subtotal * ((discountPercent || 0) / 100);
     const rawTotal = Math.max(0, subtotal + totalGst - discountAmount);
@@ -538,6 +574,8 @@ export const PosView: React.FC = () => {
       gst12: Number(gst12.toFixed(2)),
       gst18: Number(gst18.toFixed(2)),
       totalGst: Number(totalGst.toFixed(2)),
+      cgst: Number(cgst.toFixed(2)),
+      sgst: Number(sgst.toFixed(2)),
       discountAmount: Number(discountAmount.toFixed(2)),
       roundOff,
       grandTotal,
@@ -717,17 +755,17 @@ export const PosView: React.FC = () => {
                   type="search"
                   value={searchTerm}
                   onFocus={() => {
-                    setIsFullScreenSearchOpen(true);
+                    setIsSearchFocused(true);
                   }}
                   onClick={() => {
-                    setIsFullScreenSearchOpen(true);
+                    setIsSearchFocused(true);
                   }}
                   onChange={(e) => {
                     setSearchTerm(e.target.value);
-                    setIsFullScreenSearchOpen(true);
+                    setIsSearchFocused(true);
                   }}
                   placeholder="Search medicine, salt, rack (F2 or /)..."
-                  className="w-full pl-9 sm:pl-10 pr-16 sm:pr-20 py-2 sm:py-2.5 bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white dark:focus:bg-slate-900 min-h-[42px] sm:min-h-[46px] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden shadow-2xs cursor-text"
+                  className="w-full pl-9 sm:pl-10 pr-20 sm:pr-24 py-2 sm:py-2.5 bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 rounded-xl text-xs sm:text-sm font-semibold text-slate-900 dark:text-white placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-teal-500 focus:bg-white dark:focus:bg-slate-900 min-h-[42px] sm:min-h-[46px] [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-decoration]:hidden shadow-2xs cursor-text"
                   autoComplete="off"
                   autoCorrect="off"
                   autoCapitalize="none"
@@ -736,8 +774,23 @@ export const PosView: React.FC = () => {
                   data-form-type="other"
                 />
                 
-                {/* Right inside input actions: Single Voice Search (Mic) & ✕ Clear Button */}
+                {/* Right inside input actions: F3 Fullscreen, Voice Search, & ✕ Clear Button */}
                 <div className="absolute right-1.5 sm:right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                  <button
+                    type="button"
+                    id="pos-fullscreen-search-btn"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setIsFullScreenSearchOpen(true);
+                    }}
+                    className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer flex items-center gap-1 border border-slate-200 dark:border-slate-700 shadow-2xs"
+                    title="Open Fullscreen Search Hub (F3)"
+                  >
+                    <Maximize2 className="w-3.5 h-3.5" />
+                    <span className="hidden lg:inline text-[10px] font-mono font-bold">F3</span>
+                  </button>
+
                   <button
                     type="button"
                     id="pos-voice-search-btn"
@@ -964,6 +1017,45 @@ export const PosView: React.FC = () => {
                             {isOutOfStock ? '0 (Out of Stock)' : `${item.stockQuantity} in stock`}
                           </span>
                         </div>
+
+                        {/* Inline Batch Selector if multiple batches exist */}
+                        {item.batches && item.batches.length > 1 && (
+                          <div 
+                            className="mt-2.5 pt-2 border-t border-slate-100 dark:border-slate-800 flex items-center gap-1.5 flex-wrap"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1">
+                              <Layers className="w-3 h-3 text-teal-600" />
+                              Batches ({item.batches.length}):
+                            </span>
+                            {item.batches.map(batch => {
+                              const bDays = getDaysUntilExpiry(batch.expirationDate);
+                              const bInCart = cartItems.find(c => c.inventoryId === item.id && c.batchNumber === batch.batchNumber);
+                              return (
+                                <button
+                                  key={batch.batchNumber}
+                                  type="button"
+                                  onClick={() => handleAddItemToCart(item, batch)}
+                                  className={`px-2 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
+                                    bInCart
+                                      ? 'bg-teal-600 text-white border-teal-600 shadow-2xs'
+                                      : 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-teal-500'
+                                  }`}
+                                  title={`Click to add Batch ${batch.batchNumber} (Expires ${formatExpiryMonthYear(batch.expirationDate)})`}
+                                >
+                                  <span className="font-mono font-bold">#{batch.batchNumber}</span>
+                                  <span className={`text-[10px] ${bDays <= 90 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                                    Exp: {formatExpiryMonthYear(batch.expirationDate)}
+                                  </span>
+                                  <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold">
+                                    {batch.stockQuantity} strips
+                                  </span>
+                                  <span className="text-teal-500 font-bold ml-0.5">+</span>
+                                </button>
+                              );
+                            })}
+                          </div>
+                        )}
                       </div>
 
                       {/* Right: MRP & 1-Tap Add / Interactive Quantity Counter */}
@@ -1351,18 +1443,20 @@ export const PosView: React.FC = () => {
               </div>
             )}
 
-            {/* Payment Mode Selector */}
-            <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-1.5">
+            {/* Payment Mode Selector: Cash / UPI Toggle */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-xs font-semibold text-slate-600 dark:text-slate-300 block">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
                   Payment Mode
                 </label>
-                <span className="text-[10px] text-slate-400 font-mono">Press F4 to Pay</span>
+                <span className="text-[10px] text-slate-400 font-mono">Press F4 to Cycle</span>
               </div>
-              <div className="grid grid-cols-3 gap-1.5">
+
+              {/* Segmented Cash / UPI Switch */}
+              <div className="grid grid-cols-3 gap-1.5 p-1 bg-slate-100 dark:bg-slate-900 rounded-xl">
                 {[
                   { id: 'Cash', label: 'Cash', icon: Banknote },
-                  { id: 'Dynamic UPI QR', label: 'UPI QR', icon: QrCode },
+                  { id: 'Dynamic UPI QR', label: 'UPI / QR', icon: QrCode },
                   { id: 'Khata (Credit Ledger)', label: 'Khata', icon: BookOpen }
                 ].map(mode => {
                   const Icon = mode.icon;
@@ -1372,48 +1466,132 @@ export const PosView: React.FC = () => {
                       key={mode.id}
                       type="button"
                       onClick={() => setPaymentMode(mode.id as PaymentMode)}
-                      className={`py-2 px-2 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[40px] ${
+                      className={`py-2 px-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer min-h-[38px] ${
                         isSelected
-                          ? 'bg-slate-900 dark:bg-white text-white dark:text-slate-900 shadow-xs'
-                          : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 hover:bg-slate-200'
+                          ? 'bg-white dark:bg-slate-800 text-slate-900 dark:text-white shadow-xs border border-slate-200 dark:border-slate-700'
+                          : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white'
                       }`}
                     >
-                      <Icon className="w-3.5 h-3.5" />
+                      <Icon className={`w-3.5 h-3.5 ${isSelected ? 'text-teal-600 dark:text-teal-400' : ''}`} />
                       <span>{mode.label}</span>
                     </button>
                   );
                 })}
               </div>
 
-              {/* Cash Tendered Input for change calculation */}
+              {/* Cash Mode Details: Fast Preset Tendered & Change Return */}
               {paymentMode === 'Cash' && (
-                <div className="pt-2 flex items-center gap-2">
-                  <div className="flex-1">
-                    <label className="text-[11px] font-semibold text-slate-500 block mb-0.5">
-                      Cash Tendered (₹)
+                <div className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-900/90 border border-slate-200 dark:border-slate-700 space-y-2">
+                  <div className="flex items-center justify-between">
+                    <label className="text-[11px] font-bold text-slate-600 dark:text-slate-300">
+                      Cash Tendered
                     </label>
+                    {cashTendered > 0 && (
+                      <div className="text-right">
+                        <span className="text-[10px] text-slate-400 mr-1 font-medium">Change Due:</span>
+                        <span className="text-xs font-black text-emerald-600 dark:text-emerald-400 font-mono">
+                          ₹{cashChange.toFixed(2)}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="relative">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
                     <input
                       ref={cashInputRef}
                       type="number"
                       value={cashTendered || ''}
                       onChange={(e) => setCashTendered(Number(e.target.value) || 0)}
-                      placeholder="e.g. 500"
-                      className="w-full px-3 py-1.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 focus:outline-none"
+                      placeholder={`Exact (₹${invoiceSummary.grandTotal})`}
+                      className="w-full pl-7 pr-3 py-1.5 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 focus:outline-none font-mono"
                     />
                   </div>
-                  {cashTendered > 0 && (
-                    <div className="text-right">
-                      <span className="text-[10px] text-slate-400 block font-medium">Change Return</span>
-                      <span className="text-xs font-black text-emerald-600 dark:text-emerald-400">
-                        ₹{cashChange.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
+                  {/* Quick Tendered Presets */}
+                  <div className="flex items-center gap-1 flex-wrap pt-0.5">
+                    <button
+                      type="button"
+                      onClick={() => setCashTendered(invoiceSummary.grandTotal)}
+                      className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 hover:bg-teal-50 hover:text-teal-700 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                    >
+                      Exact (₹{invoiceSummary.grandTotal})
+                    </button>
+                    {[100, 200, 500, 1000, 2000].filter(amt => amt >= invoiceSummary.grandTotal).slice(0, 3).map(preset => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setCashTendered(preset)}
+                        className="px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 dark:bg-slate-800 hover:bg-slate-300 text-slate-700 dark:text-slate-300 transition-colors cursor-pointer"
+                      >
+                        ₹{preset}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* UPI Mode Details */}
+              {paymentMode === 'Dynamic UPI QR' && (
+                <div className="p-2.5 rounded-xl bg-teal-50/50 dark:bg-teal-950/30 border border-teal-200 dark:border-teal-800/60 flex items-center justify-between text-xs">
+                  <div className="space-y-0.5">
+                    <span className="font-bold text-teal-800 dark:text-teal-200 flex items-center gap-1">
+                      <QrCode className="w-3.5 h-3.5 text-teal-600" />
+                      Dynamic UPI Active
+                    </span>
+                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-mono">
+                      VPA: {shopSettings.upiId || 'irsaad9118@okhdfcbank'}
+                    </span>
+                  </div>
+                  <span className="text-xs font-black font-mono text-teal-700 dark:text-teal-300">
+                    ₹{invoiceSummary.grandTotal.toFixed(2)}
+                  </span>
                 </div>
               )}
             </div>
 
-            {/* Invoice Summary */}
+            {/* Discount % Control */}
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-700 space-y-1.5">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1">
+                  <Percent className="w-3.5 h-3.5 text-teal-600" />
+                  Discount %
+                </label>
+                {discountPercent > 0 && (
+                  <span className="text-xs font-bold text-rose-600 dark:text-rose-400 font-mono">
+                    -₹{invoiceSummary.discountAmount.toFixed(2)}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1.5">
+                {[0, 5, 10, 15].map(pct => (
+                  <button
+                    key={pct}
+                    type="button"
+                    onClick={() => setDiscountPercent(pct)}
+                    className={`flex-1 py-1 rounded-lg text-xs font-bold border transition-colors cursor-pointer ${
+                      discountPercent === pct
+                        ? 'bg-teal-600 text-white border-teal-600 shadow-2xs'
+                        : 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-teal-500'
+                    }`}
+                  >
+                    {pct === 0 ? 'None' : `${pct}%`}
+                  </button>
+                ))}
+                <div className="relative w-20">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    value={discountPercent || ''}
+                    onChange={(e) => setDiscountPercent(Math.min(100, Math.max(0, Number(e.target.value) || 0)))}
+                    placeholder="Custom %"
+                    className="w-full pl-2 pr-5 py-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg text-xs font-bold text-slate-900 dark:text-white focus:outline-none focus:ring-1 focus:ring-teal-500 font-mono"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400 pointer-events-none">%</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Live Financial Breakdown & GST Split */}
             <div className="pt-2.5 border-t border-slate-100 dark:border-slate-700 text-xs space-y-1.5">
               
               <div className="flex items-center justify-between text-slate-600 dark:text-slate-400">
@@ -1436,12 +1614,32 @@ export const PosView: React.FC = () => {
                 </div>
               )}
 
-              {/* GST Breakdown (5%, 12%, 18%) */}
-              <div className="flex items-center justify-between text-[11px] text-slate-500">
-                <span>GST Breakdown (5% + 12% + 18%):</span>
-                <span className="font-mono">
-                  ₹{invoiceSummary.totalGst.toFixed(2)}
-                </span>
+              {/* Discount Deduction */}
+              {invoiceSummary.discountAmount > 0 && (
+                <div className="flex items-center justify-between text-rose-600 dark:text-rose-400 font-semibold">
+                  <span>Bill Discount ({discountPercent}%):</span>
+                  <span className="font-mono">
+                    -₹{invoiceSummary.discountAmount.toFixed(2)}
+                  </span>
+                </div>
+              )}
+
+              {/* Explicit GST Split (CGST + SGST) */}
+              <div className="p-2 rounded-xl bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 space-y-1">
+                <div className="flex items-center justify-between text-[11px] font-bold text-slate-700 dark:text-slate-300">
+                  <span>GST Split (Total: ₹{invoiceSummary.totalGst.toFixed(2)}):</span>
+                  <span className="font-mono text-teal-600 dark:text-teal-400 font-extrabold">₹{invoiceSummary.totalGst.toFixed(2)}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-[10.5px] font-mono text-slate-500 dark:text-slate-400 border-t border-slate-200 dark:border-slate-800 pt-1">
+                  <div className="flex items-center justify-between">
+                    <span>CGST (50%):</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">₹{invoiceSummary.cgst.toFixed(2)}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>SGST (50%):</span>
+                    <span className="font-semibold text-slate-700 dark:text-slate-300">₹{invoiceSummary.sgst.toFixed(2)}</span>
+                  </div>
+                </div>
               </div>
 
               {invoiceSummary.roundOff !== 0 && (
@@ -1451,53 +1649,62 @@ export const PosView: React.FC = () => {
                 </div>
               )}
 
-              {/* Grand Total */}
-              <div className="flex items-center justify-between pt-2 border-t border-slate-200 dark:border-slate-700">
-                <span className="font-bold text-slate-900 dark:text-white text-sm">
-                  Grand Total:
-                </span>
-                <span className="font-black text-lg sm:text-xl text-teal-600 dark:text-teal-400 font-mono">
+              {/* Live Grand Total */}
+              <div className="flex items-center justify-between pt-2.5 border-t border-slate-200 dark:border-slate-700">
+                <div>
+                  <span className="font-black text-slate-900 dark:text-white text-sm block leading-none">
+                    Live Total:
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-semibold">
+                    {invoiceSummary.totalItemsCount} item{invoiceSummary.totalItemsCount === 1 ? '' : 's'} included
+                  </span>
+                </div>
+                <span className="font-black text-xl sm:text-2xl text-teal-600 dark:text-teal-400 font-mono tracking-tight">
                   ₹{invoiceSummary.grandTotal.toFixed(2)}
                 </span>
               </div>
 
             </div>
 
-            {/* Instant Actions (Print Thermal Receipt & Send WhatsApp Bill & Checkout) */}
+            {/* Instant Actions (1-Click Complete & Send WhatsApp Bill + Thermal Receipt Print) */}
             <div className="pt-2 space-y-2">
               
+              {/* 1-Click "Complete & Send WhatsApp Bill" Simulation Button */}
               <button
-                id="pos-complete-and-bill-btn"
+                id="pos-complete-and-whatsapp-btn"
+                type="button"
                 disabled={cartItems.length === 0}
-                onClick={() => handleCheckout(true)}
-                className="w-full py-3 px-4 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-xs cursor-pointer active:scale-[0.99] min-h-[48px]"
+                onClick={handleOpenWhatsAppDirect}
+                className="w-full py-3 px-4 rounded-xl bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold text-sm sm:text-base flex items-center justify-center gap-2 transition-all shadow-2xs cursor-pointer active:scale-[0.99] min-h-[48px]"
+                title="1-Click: Complete sale, update inventory, and open pre-formatted WhatsApp bill"
               >
-                <CheckCircle2 className="w-5 h-5" />
-                <span>Complete & Generate Bill (₹{invoiceSummary.grandTotal})</span>
+                <Send className="w-5 h-5" />
+                <span>Complete & Send WhatsApp Bill</span>
               </button>
 
               <div className="grid grid-cols-2 gap-2">
-                {/* Send WhatsApp Bill */}
+                {/* Standard Complete & Bill */}
                 <button
-                  type="button"
-                  onClick={handleOpenWhatsAppDirect}
+                  id="pos-complete-and-bill-btn"
                   disabled={cartItems.length === 0}
-                  className="py-2.5 px-3 rounded-xl bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 text-emerald-800 dark:bg-emerald-950/60 dark:hover:bg-emerald-900 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[44px]"
+                  onClick={() => handleCheckout(true)}
+                  className="py-2.5 px-3 rounded-xl bg-teal-600 hover:bg-teal-700 disabled:opacity-50 text-white text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[44px]"
                 >
-                  <Send className="w-4 h-4" />
-                  <span>Send WhatsApp</span>
+                  <CheckCircle2 className="w-4 h-4" />
+                  <span>Complete Bill</span>
                 </button>
 
-                {/* Print Thermal Receipt */}
+                {/* Standard Thermal Receipt Print */}
                 <button
                   type="button"
+                  id="pos-print-thermal-btn"
                   onClick={handlePrintThermalDirect}
                   disabled={cartItems.length === 0}
-                  className="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-200 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[44px]"
+                  className="py-2.5 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 text-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-slate-200 border border-slate-200 dark:border-slate-600 text-xs font-bold flex items-center justify-center gap-1.5 transition-colors cursor-pointer min-h-[44px]"
                   title="Direct thermal receipt print (Ctrl + P)"
                 >
-                  <Printer className="w-4 h-4" />
-                  <span>Print (Ctrl+P)</span>
+                  <Printer className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                  <span>Thermal Print (Ctrl+P)</span>
                 </button>
               </div>
 

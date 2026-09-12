@@ -18,8 +18,10 @@ import {
   Minus,
   MessageCircle,
   FileText,
-  Calendar
+  Calendar,
+  Pencil
 } from 'lucide-react';
+import { EditExpiringMedicineModal } from './EditExpiringMedicineModal';
 
 interface ExpiryLowStockDrawerProps {
   isOpen: boolean;
@@ -41,6 +43,8 @@ export const ExpiryLowStockDrawer: React.FC<ExpiryLowStockDrawerProps> = ({
     applyNearExpiryDiscount, 
     createDebitNoteReturn, 
     quarantineItem,
+    updateInventoryItem,
+    deleteInventoryItem,
     addToast
   } = usePharmacy();
 
@@ -48,6 +52,7 @@ export const ExpiryLowStockDrawer: React.FC<ExpiryLowStockDrawerProps> = ({
   const [searchTerm, setSearchTerm] = useState<string>('');
 
   // Modals inside drawer
+  const [editingItem, setEditingItem] = useState<MedicationInventory | null>(null);
   const [debitNoteModalItem, setDebitNoteModalItem] = useState<MedicationInventory | null>(null);
   const [returnQty, setReturnQty] = useState<number>(1);
   const [returnReason, setReturnReason] = useState<string>('Near Expiry Return (≤ 90-day Distributor Credit Policy)');
@@ -374,6 +379,17 @@ export const ExpiryLowStockDrawer: React.FC<ExpiryLowStockDrawerProps> = ({
 
                   {/* Actions Row */}
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-100 dark:border-slate-700/60">
+                    {/* Direct Edit Details Button */}
+                    <button
+                      type="button"
+                      onClick={() => setEditingItem(item)}
+                      className="py-2 px-3 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/60 dark:hover:bg-teal-900 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1 min-h-[40px] cursor-pointer transition-colors"
+                      title="Edit Expiry Date, Batch, Stock or Shelf Location"
+                    >
+                      <Pencil className="w-3.5 h-3.5" />
+                      <span>Edit</span>
+                    </button>
+
                     {/* Return to Distributor Slip */}
                     <button
                       onClick={() => {
@@ -383,7 +399,7 @@ export const ExpiryLowStockDrawer: React.FC<ExpiryLowStockDrawerProps> = ({
                       className="flex-1 py-2 px-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-2xs min-h-[40px] cursor-pointer transition-colors"
                     >
                       <RotateCcw className="w-3.5 h-3.5" />
-                      <span>Return to Distributor</span>
+                      <span>Return</span>
                     </button>
 
                     {/* Apply Discount */}
@@ -692,6 +708,53 @@ export const ExpiryLowStockDrawer: React.FC<ExpiryLowStockDrawerProps> = ({
           </div>
         </div>
       )}
+
+      {/* Comprehensive In-Place Edit Expiring Medicine Modal */}
+      <EditExpiringMedicineModal
+        isOpen={!!editingItem}
+        onClose={() => setEditingItem(null)}
+        item={editingItem}
+        onSave={(updates) => {
+          if (!editingItem) return;
+          updateInventoryItem(editingItem.id, updates);
+          const newDate = updates.expirationDate || editingItem.expirationDate;
+          const days = getDaysUntilExpiry(newDate);
+          const medName = updates.brandName || editingItem.brandName;
+          if (days > 90) {
+            addToast({
+              type: 'success',
+              title: 'Expiry Extended & Alert Cleared',
+              message: `${medName} shelf-life extended to ${newDate}. Moved to Safe Inventory (>90d).`
+            });
+          } else if (days <= 0) {
+            addToast({
+              type: 'warning',
+              title: 'Expired Medicine Saved',
+              message: `${medName} details and stock updated. Item remains listed in Expired tab.`
+            });
+          } else {
+            addToast({
+              type: 'success',
+              title: 'Medicine Record Saved',
+              message: `${medName} updated successfully (${days} days shelf-life remaining).`
+            });
+          }
+          setEditingItem(null);
+        }}
+        onInitiateReturn={(item) => {
+          setDebitNoteModalItem(item);
+          setReturnQty(Math.min(item.stockQuantity, 10) || 1);
+          setEditingItem(null);
+        }}
+        onQuarantine={(id, reason) => {
+          quarantineItem(id, reason);
+          setEditingItem(null);
+        }}
+        onArchive={(id) => {
+          deleteInventoryItem(id, true);
+          setEditingItem(null);
+        }}
+      />
 
     </div>
   );

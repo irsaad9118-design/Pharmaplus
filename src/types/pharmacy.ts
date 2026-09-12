@@ -357,6 +357,18 @@ export type ScheduleClass = 'OTC' | 'Rx' | 'Schedule-H' | 'Schedule-H1' | 'Sched
 
 export type DosageForm = 'Tablet' | 'Capsule' | 'Syrup' | 'Injection' | 'Ointment' | 'Eye Drops' | 'Inhaler' | 'Suspension' | 'Powder' | 'Cream';
 
+export interface InventoryBatch {
+  id: string;
+  batchNumber: string;
+  expirationDate: string;
+  mfgDate?: string;
+  stockQuantity: number;
+  mrp?: number;
+  purchaseRate?: number;
+  addedAt?: string;
+  isSecondary?: boolean;
+}
+
 export interface MedicationInventory {
   id: string;
   ndc: string;
@@ -399,6 +411,13 @@ export interface MedicationInventory {
   quarantined: boolean;
   autoReorder: boolean;
 
+  // Multi-Batch support
+  batches?: InventoryBatch[];
+  
+  // Soft Delete & Archive tracking
+  isArchived?: boolean;
+  archivedAt?: string;
+
   // Medicine Offers & Schemes
   offerType?: MedicineOfferType;
   offerLabel?: string;
@@ -407,20 +426,19 @@ export interface MedicationInventory {
   schemeFreeQty?: number;
   offer?: MedicineOffer;
 
-  // Medicine Images & AI Category Thumbnails
+  // Medicine Images & Static Visual Badges
   imageUrl?: string;
   thumbnailUrl?: string;
 }
 
-export interface CategoryThumbnailInfo {
+export interface CategoryVisualInfo {
   category: string;
   normalizedCategory: string;
-  imageUrl: string;
-  isAiGenerated: boolean;
-  provider: 'imagen' | 'fallback_svg' | 'custom';
-  prompt?: string;
-  generatedAt?: string;
-  statusMessage?: string;
+  iconName: string;
+  badgeLabel: string;
+  colorClass: string;
+  bgClass: string;
+  borderClass: string;
 }
 
 export type ExpiryAlertTier = 'red' | 'amber' | 'yellow' | 'green';
