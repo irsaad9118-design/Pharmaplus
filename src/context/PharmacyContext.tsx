@@ -238,8 +238,40 @@ export const PharmacyProvider: React.FC<{ children: ReactNode }> = ({ children }
   });
 
   const [inventory, setInventory] = useState<MedicationInventory[]>(() => {
+    const normalizeItem = (item: MedicationInventory): MedicationInventory => {
+      const initialMatch = INITIAL_INVENTORY.find(i => i.id === item.id || i.brandName.toLowerCase() === item.brandName.toLowerCase());
+      let batches = item.batches && item.batches.length > 0 ? item.batches.map(b => ({ ...b })) : [];
+
+      // If item lacks batches or has unrealistic legacy numbers (> 200), reset to realistic retail batch structure
+      if (batches.length === 0 || batches.some(b => Number(b.stockQuantity) > 200) || item.stockQuantity > 200) {
+        if (initialMatch && initialMatch.batches && initialMatch.batches.length > 0) {
+          batches = initialMatch.batches.map(b => ({ ...b }));
+        } else {
+          const realisticStock = item.stockQuantity > 200 ? 50 : Math.max(1, item.stockQuantity || 20);
+          batches = [
+            {
+              id: `batch-${item.id}-0`,
+              batchNumber: item.batchNumber || 'BT-101',
+              expirationDate: item.expirationDate || '2027-12-31',
+              mfgDate: item.mfgDate || '2025-01-01',
+              stockQuantity: realisticStock,
+              mrp: item.mrp,
+              purchaseRate: item.purchaseRate || item.costPrice
+            }
+          ];
+        }
+      }
+
+      const dynamicTotal = batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+      return {
+        ...item,
+        batches,
+        stockQuantity: dynamicTotal
+      };
+    };
+
     const saved = localStorage.getItem(`pharmpulse_${storeId}_inventory`);
-    if (!saved) return deduplicateMasterInventory(INITIAL_INVENTORY);
+    if (!saved) return deduplicateMasterInventory(INITIAL_INVENTORY.map(normalizeItem));
     try {
       const parsed: MedicationInventory[] = JSON.parse(saved);
       // Ensure newly configured reference items (e.g. Pacimol 650, Crocin 650 Advance) are available
@@ -247,9 +279,10 @@ export const PharmacyProvider: React.FC<{ children: ReactNode }> = ({ children }
       const existingBrands = new Set(parsed.map(i => i.brandName.toLowerCase()));
       const missing = INITIAL_INVENTORY.filter(i => !existingIds.has(i.id) && !existingBrands.has(i.brandName.toLowerCase()));
       const combined = missing.length > 0 ? [...parsed, ...missing] : parsed;
-      return deduplicateMasterInventory(combined);
+      const normalized = combined.map(normalizeItem);
+      return deduplicateMasterInventory(normalized);
     } catch {
-      return deduplicateMasterInventory(INITIAL_INVENTORY);
+      return deduplicateMasterInventory(INITIAL_INVENTORY.map(normalizeItem));
     }
   });
 
@@ -1356,6 +1389,11 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
         });
       }
 
+      // Dynamic Sum Calculation: Ensure stockQuantity is always exactly the sum of all available batches
+      if (updated.batches && updated.batches.length > 0) {
+        updated.stockQuantity = updated.batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+      }
+
       return updated;
     }));
 
@@ -1371,20 +1409,31 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
   const updateInventoryStock = (id: string, changeQty: number, reason?: string, batchNumber?: string) => {
     setInventory(prev => prev.map(item => {
       if (item.id !== id) return item;
-      const newStock = Math.max(0, item.stockQuantity + changeQty);
-      let updatedBatches = item.batches;
-      if (updatedBatches && updatedBatches.length > 0) {
+      let updatedBatches = item.batches ? item.batches.map(b => ({ ...b })) : [];
+      if (updatedBatches.length > 0) {
         if (batchNumber) {
           const matchIdx = updatedBatches.findIndex(b => b.batchNumber === batchNumber);
           if (matchIdx !== -1) {
-            updatedBatches = updatedBatches.map(b => b.batchNumber === batchNumber ? { ...b, stockQuantity: Math.max(0, b.stockQuantity + changeQty) } : b);
+            updatedBatches[matchIdx] = {
+              ...updatedBatches[matchIdx],
+              stockQuantity: Math.max(0, (Number(updatedBatches[matchIdx].stockQuantity) || 0) + changeQty)
+            };
           } else {
-            updatedBatches = updatedBatches.map((b, idx) => idx === 0 ? { ...b, stockQuantity: Math.max(0, b.stockQuantity + changeQty) } : b);
+            updatedBatches[0] = {
+              ...updatedBatches[0],
+              stockQuantity: Math.max(0, (Number(updatedBatches[0].stockQuantity) || 0) + changeQty)
+            };
           }
         } else {
-          updatedBatches = updatedBatches.map((b, idx) => idx === 0 ? { ...b, stockQuantity: Math.max(0, b.stockQuantity + changeQty) } : b);
+          updatedBatches[0] = {
+            ...updatedBatches[0],
+            stockQuantity: Math.max(0, (Number(updatedBatches[0].stockQuantity) || 0) + changeQty)
+          };
         }
       }
+      const newStock = updatedBatches.length > 0
+        ? updatedBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0)
+        : Math.max(0, item.stockQuantity + changeQty);
       return { ...item, stockQuantity: newStock, batches: updatedBatches };
     }));
     const target = inventory.find(i => i.id === id);

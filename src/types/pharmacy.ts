@@ -369,6 +369,20 @@ export interface InventoryBatch {
   isSecondary?: boolean;
 }
 
+/**
+ * Dynamically computes the exact sum of all available batches for a medicine.
+ * Fallback to item.stockQuantity if batches array is empty or undefined.
+ */
+export function getDynamicTotalStock(
+  item: { stockQuantity?: number; batches?: { stockQuantity: number }[] } | null | undefined
+): number {
+  if (!item) return 0;
+  if (item.batches && item.batches.length > 0) {
+    return item.batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+  }
+  return Number(item.stockQuantity) || 0;
+}
+
 export interface MedicationInventory {
   id: string;
   ndc: string;

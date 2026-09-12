@@ -162,7 +162,30 @@ export function mergeInventoryItem(
   let isNewBatchAdded = false;
   let activeBatchNo = existing.batchNumber;
 
-  if (incomingBatchNo) {
+  if (incoming.batches && incoming.batches.length > 0) {
+    // If incoming item already has explicit batches, merge them accurately
+    for (const incBatch of incoming.batches) {
+      const matchIdx = batches.findIndex(
+        b => normalizeMedName(b.batchNumber) === normalizeMedName(incBatch.batchNumber)
+      );
+      if (matchIdx >= 0) {
+        batches[matchIdx] = {
+          ...batches[matchIdx],
+          stockQuantity: (Number(batches[matchIdx].stockQuantity) || 0) + (Number(incBatch.stockQuantity) || 0),
+          expirationDate: incBatch.expirationDate || batches[matchIdx].expirationDate,
+          mrp: incBatch.mrp !== undefined && incBatch.mrp > 0 ? incBatch.mrp : batches[matchIdx].mrp,
+          purchaseRate: incBatch.purchaseRate !== undefined && incBatch.purchaseRate > 0 ? incBatch.purchaseRate : batches[matchIdx].purchaseRate
+        };
+      } else {
+        batches.push({
+          ...incBatch,
+          id: incBatch.id || `batch-${Date.now()}-${Math.floor(100 + Math.random() * 900)}`,
+          isSecondary: true
+        });
+        isNewBatchAdded = true;
+      }
+    }
+  } else if (incomingBatchNo) {
     // Check if batch number matches an existing batch (case-insensitive normalized)
     const existingBatchIndex = batches.findIndex(
       b => normalizeMedName(b.batchNumber) === normalizeMedName(incomingBatchNo)
@@ -208,9 +231,9 @@ export function mergeInventoryItem(
     }
   }
 
-  // Calculate authoritative total stock across all batches
+  // Calculate authoritative total stock dynamically across all batches
   const computedTotalStock = batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
-  const finalStock = Math.max(newStock, computedTotalStock);
+  const finalStock = computedTotalStock;
 
   // Determine active display batch: prefer earliest expiring batch that still has stock > 0 (FEFO)
   const activeBatchesWithStock = batches.filter(b => (Number(b.stockQuantity) || 0) > 0);
