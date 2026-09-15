@@ -143,9 +143,10 @@ export const ExpiryAlertCenterView: React.FC = () => {
     const in30Days = list.filter(i => i.daysLeft > 0 && i.daysLeft <= 30);
     const in60Days = list.filter(i => i.daysLeft > 30 && i.daysLeft <= 60);
     const in90Days = list.filter(i => i.daysLeft > 60 && i.daysLeft <= 90);
+    const atRisk = list.filter(i => i.daysLeft <= 90);
 
     return {
-      all: list.length,
+      all: atRisk.length,
       expired: expired.length,
       in30Days: in30Days.length,
       in60Days: in60Days.length,
@@ -194,6 +195,8 @@ export const ExpiryAlertCenterView: React.FC = () => {
       if (selectedCategory === '30days' && (item.daysLeft <= 0 || item.daysLeft > 30)) return false;
       if (selectedCategory === '60days' && (item.daysLeft <= 30 || item.daysLeft > 60)) return false;
       if (selectedCategory === '90days' && (item.daysLeft <= 60 || item.daysLeft > 90)) return false;
+      // When 'All At-Risk' and no specific tier selected, show only items with expiry <= 90 days
+      if (selectedCategory === 'all' && selectedTier === 'all' && item.daysLeft > 90) return false;
 
       // Tier Filter
       if (selectedTier !== 'all' && item.tier !== selectedTier) return false;

@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { MedicationInventory, InventoryBatch } from '../../types/pharmacy';
+import { usePharmacy } from '../../context/PharmacyContext';
 import { 
   X, 
   Save, 
@@ -47,6 +48,7 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
   onQuarantine,
   onArchive
 }) => {
+  const { deleteBatch, addToast } = usePharmacy();
   if (!isOpen || !item) return null;
 
   // Editable Form State prefilled with current medicine values
@@ -286,18 +288,48 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
     setStockQuantity(newBatch.stockQuantity);
   };
 
-  // Delete current batch if more than 1 batch exists
+  // Delete specific batch, update total stock, and synchronize with global inventory
   const handleDeleteBatch = (idxToDelete: number) => {
-    if (batchesState.length <= 1) return;
+    if (idxToDelete < 0 || idxToDelete >= batchesState.length) return;
+    const batchToDelete = batchesState[idxToDelete];
+    if (!batchToDelete) return;
+
+    // Remove from local array
     const filtered = batchesState.filter((_, i) => i !== idxToDelete);
-    setBatchesState(filtered);
-    const newIdx = Math.max(0, idxToDelete - 1);
-    setActiveBatchIdx(newIdx);
-    const target = filtered[newIdx];
-    if (target) {
-      setBatchNumber(target.batchNumber);
-      setExpirationDate(target.expirationDate);
-      setStockQuantity(target.stockQuantity);
+
+    // Call deleteBatch from PharmacyContext so global inventory, total stock, and backend update immediately
+    deleteBatch(item.id, batchToDelete.id || batchToDelete.batchNumber);
+
+    if (filtered.length === 0) {
+      // If all batches deleted, provide a fresh zero-stock batch placeholder
+      const freshBatch: InventoryBatch = {
+        id: `batch-${Date.now()}`,
+        batchNumber: 'BT-01',
+        expirationDate: expirationDate || '2027-12-31',
+        stockQuantity: 0,
+        mrp: mrp,
+        purchaseRate: purchaseRate
+      };
+      setBatchesState([freshBatch]);
+      setActiveBatchIdx(0);
+      setBatchNumber(freshBatch.batchNumber);
+      setExpirationDate(freshBatch.expirationDate);
+      setStockQuantity(0);
+    } else {
+      setBatchesState(filtered);
+      const newIdx = Math.min(
+        Math.max(0, idxToDelete === activeBatchIdx ? (idxToDelete === 0 ? 0 : idxToDelete - 1) : (activeBatchIdx > idxToDelete ? activeBatchIdx - 1 : activeBatchIdx)),
+        filtered.length - 1
+      );
+      setActiveBatchIdx(newIdx);
+      const target = filtered[newIdx];
+      if (target) {
+        setBatchNumber(target.batchNumber);
+        setExpirationDate(target.expirationDate);
+        setStockQuantity(target.stockQuantity);
+        if (target.mrp) setMrp(target.mrp);
+        if (target.purchaseRate) setPurchaseRate(target.purchaseRate);
+      }
     }
   };
 
@@ -310,7 +342,7 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
     const locationShelf = `${rackNumber}-${shelfClean} • ${boxBin}`;
 
     // Compile updated batches array
-    const compiledBatches = batchesState.map((b, idx) => {
+    let compiledBatches = batchesState.map((b, idx) => {
       if (idx === activeBatchIdx) {
         return {
           ...b,
@@ -325,14 +357,30 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
       return b;
     });
 
+    if (compiledBatches.length === 0) {
+      compiledBatches = [
+        {
+          id: `batch-${item.id}-0`,
+          batchNumber: batchNumber.trim() || 'BT-01',
+          expirationDate: expirationDate,
+          stockQuantity: Math.max(0, Number(stockQuantity) || 0),
+          mrp: Math.max(0, Number(mrp) || 0),
+          purchaseRate: Math.max(0, Number(purchaseRate) || 0)
+        }
+      ];
+    }
+
     const totalStock = compiledBatches.reduce((acc, b) => acc + (Number(b.stockQuantity) || 0), 0);
+    const activeBatchData = compiledBatches[activeBatchIdx] || compiledBatches[0];
+    const finalBatchNo = activeBatchData?.batchNumber || batchNumber.trim();
+    const finalExpDate = activeBatchData?.expirationDate || expirationDate;
 
     onSave({
       brandName: brandName.trim(),
       saltComposition: saltComposition.trim() || brandName.trim(),
       genericName: saltComposition.trim() || brandName.trim(),
-      batchNumber: batchNumber.trim(),
-      expirationDate: expirationDate,
+      batchNumber: finalBatchNo,
+      expirationDate: finalExpDate,
       stockQuantity: totalStock,
       unit: unit,
       rackNumber: rackNumber,
@@ -532,15 +580,20 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
           {/* MULTI-BATCH SELECTOR BAR (if medicine has multiple batches) */}
           {batchesState.length > 0 && (
             <div className="bg-slate-50/90 dark:bg-slate-900/60 p-3 rounded-xl border border-slate-200 dark:border-slate-700 space-y-2">
-              <div className="flex items-center justify-between">
-                <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-1.5">
-                  <Layers className="w-3.5 h-3.5 text-teal-600" />
-                  <span>Batch Records for this Medicine ({batchesState.length})</span>
+              <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="text-[11px] font-bold text-slate-600 dark:text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                  <span className="flex items-center gap-1.5">
+                    <Layers className="w-3.5 h-3.5 text-teal-600" />
+                    Batch Records ({batchesState.length})
+                  </span>
+                  <span className="font-mono text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 px-2 py-0.5 rounded border border-teal-200 dark:border-teal-800 text-[10px] font-bold">
+                    Total In-Stock: {batchesState.reduce((sum, b, i) => sum + (i === activeBatchIdx ? (Number(stockQuantity) || 0) : (Number(b.stockQuantity) || 0)), 0)} {unit}
+                  </span>
                 </div>
                 <button
                   type="button"
                   onClick={handleAddNewBatch}
-                  className="px-2 py-1 rounded-lg text-[11px] font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 flex items-center gap-1 cursor-pointer transition-colors"
+                  className="px-2.5 py-1 rounded-lg text-[11px] font-bold bg-teal-50 dark:bg-teal-950/60 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 hover:bg-teal-100 flex items-center gap-1 cursor-pointer transition-colors"
                 >
                   <Plus className="w-3 h-3" />
                   <span>Add Batch</span>
@@ -564,10 +617,11 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
                   const isExp = bDays <= 0;
                   const isNear = bDays > 0 && bDays <= 90;
                   const isSelected = activeBatchIdx === idx;
+                  const currentBatchQty = idx === activeBatchIdx ? Number(stockQuantity) : b.stockQuantity;
 
                   return (
                     <div
-                      key={idx}
+                      key={b.id || idx}
                       onClick={() => handleSwitchBatch(idx)}
                       className={`px-3 py-2 rounded-xl text-xs font-medium shrink-0 cursor-pointer border transition-all flex items-center gap-2 ${
                         isSelected
@@ -580,7 +634,7 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
                           {b.batchNumber || `Batch ${idx + 1}`}
                         </span>
                         <span className="text-[10px] text-slate-500 font-mono">
-                          Exp: {b.expirationDate || 'N/A'} • {b.stockQuantity} {unit}
+                          Exp: {b.expirationDate || 'N/A'} • {currentBatchQty} {unit}
                         </span>
                       </div>
 
@@ -594,19 +648,19 @@ export const EditExpiringMedicineModal: React.FC<EditExpiringMedicineModalProps>
                         {isExp ? 'EXPIRED' : isNear ? `${bDays}d` : 'SAFE'}
                       </span>
 
-                      {batchesState.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            handleDeleteBatch(idx);
-                          }}
-                          className="text-slate-400 hover:text-rose-600 p-0.5"
-                          title="Remove batch"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
+                      {/* X Button to delete specific batch and update total stock */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleDeleteBatch(idx);
+                        }}
+                        className="text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 p-1 rounded-md hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors ml-0.5 cursor-pointer"
+                        title={`Delete Batch ${b.batchNumber || idx + 1} and reduce total stock`}
+                        aria-label={`Delete Batch ${b.batchNumber || idx + 1}`}
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   );
                 })}

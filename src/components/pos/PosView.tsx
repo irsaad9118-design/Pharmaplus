@@ -1061,45 +1061,6 @@ export const PosView: React.FC = () => {
                           {/* Batch Number */}
                           <span className="font-mono text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-800 inline-flex items-center gap-1">
                             <span>B: {item.batchNumber}</span>
-                            {/* If only 1 batch, provide quick edit/delete right here */}
-                            {(!item.batches || item.batches.length <= 1) && (
-                              <span className="inline-flex items-center ml-0.5" onClick={(e) => e.stopPropagation()}>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const currentBatch = (item.batches && item.batches[0]) || {
-                                      id: 'batch-primary',
-                                      batchNumber: item.batchNumber,
-                                      expirationDate: item.expirationDate,
-                                      stockQuantity: item.stockQuantity
-                                    };
-                                    setEditingBatch({ medicine: item, batch: currentBatch });
-                                  }}
-                                  className="p-0.5 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
-                                  title={`Edit Batch ${item.batchNumber}`}
-                                >
-                                  <Pencil className="w-2.5 h-2.5" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    const currentBatch = (item.batches && item.batches[0]) || {
-                                      id: 'batch-primary',
-                                      batchNumber: item.batchNumber,
-                                      expirationDate: item.expirationDate,
-                                      stockQuantity: item.stockQuantity
-                                    };
-                                    setDeletingBatch({ medicine: item, batch: currentBatch });
-                                  }}
-                                  className="p-0.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
-                                  title={`Delete Batch ${item.batchNumber}`}
-                                >
-                                  <Trash2 className="w-2.5 h-2.5" />
-                                </button>
-                              </span>
-                            )}
                           </span>
 
                           {/* Expiry Badge */}
@@ -1139,56 +1100,26 @@ export const PosView: React.FC = () => {
                               const bDays = getDaysUntilExpiry(batch.expirationDate);
                               const bInCart = cartItems.find(c => c.inventoryId === item.id && c.batchNumber === batch.batchNumber);
                               return (
-                                <div
+                                <button
                                   key={batch.batchNumber || batch.id}
-                                  className="inline-flex items-center gap-0.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-0.5"
+                                  type="button"
+                                  onClick={() => handleAddItemToCart(item, batch)}
+                                  className={`px-2.5 py-1 rounded-lg text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer border ${
+                                    bInCart
+                                      ? 'bg-teal-600 text-white border-teal-600 shadow-2xs'
+                                      : 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:bg-white dark:hover:bg-slate-800'
+                                  }`}
+                                  title={`Click to add Batch ${batch.batchNumber} (Expires ${formatExpiryMonthYear(batch.expirationDate)})`}
                                 >
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAddItemToCart(item, batch)}
-                                    className={`px-2 py-0.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
-                                      bInCart
-                                        ? 'bg-teal-600 text-white shadow-2xs'
-                                        : 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
-                                    }`}
-                                    title={`Click to add Batch ${batch.batchNumber} (Expires ${formatExpiryMonthYear(batch.expirationDate)})`}
-                                  >
-                                    <span className="font-mono font-bold">#{batch.batchNumber}</span>
-                                    <span className={`text-[10px] ${bDays <= 90 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
-                                      Exp: {formatExpiryMonthYear(batch.expirationDate)}
-                                    </span>
-                                    <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold">
-                                      {batch.stockQuantity} strips
-                                    </span>
-                                    <span className="text-teal-500 font-bold ml-0.5">+</span>
-                                  </button>
-
-                                  {/* Batch Edit Action */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setEditingBatch({ medicine: item, batch });
-                                    }}
-                                    className="p-1 rounded text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
-                                    title={`Edit batch ${batch.batchNumber}`}
-                                  >
-                                    <Pencil className="w-3 h-3" />
-                                  </button>
-
-                                  {/* Batch Delete Action */}
-                                  <button
-                                    type="button"
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      setDeletingBatch({ medicine: item, batch });
-                                    }}
-                                    className="p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors"
-                                    title={`Delete batch ${batch.batchNumber}`}
-                                  >
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </div>
+                                  <span className="font-mono font-bold">#{batch.batchNumber}</span>
+                                  <span className={`text-[10px] ${bDays <= 90 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                                    Exp: {formatExpiryMonthYear(batch.expirationDate)}
+                                  </span>
+                                  <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold">
+                                    {batch.stockQuantity} strips
+                                  </span>
+                                  <span className="text-teal-500 font-bold ml-0.5">+</span>
+                                </button>
                               );
                             })}
                           </div>

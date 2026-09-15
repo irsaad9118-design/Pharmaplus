@@ -1358,6 +1358,7 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
   };
 
   const updateInventoryItem = (id: string, updates: Partial<MedicationInventory>) => {
+    let finalUpdatedItem: MedicationInventory | null = null;
     setInventory(prev => prev.map(item => {
       if (item.id !== id) return item;
       const updated = { ...item, ...updates };
@@ -1402,13 +1403,15 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
         updated.stockQuantity = updated.batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
       }
 
+      finalUpdatedItem = updated;
       return updated;
     }));
 
+    // Persist full synchronized item to backend store
     fetch(`/api/store/${storeId}/inventory/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(updates)
+      body: JSON.stringify(finalUpdatedItem || updates)
     }).catch(() => {});
 
     logActivity('Medicine Inventory Updated', `Updated stock/expiry/location for item ID ${id}`, 'Inventory');
