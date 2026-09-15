@@ -138,6 +138,9 @@ export interface StoreWorkspace {
   dailySalesTotal?: number; // Sum of all bills generated today (₹)
   totalSalesCount?: number; // Number of invoices processed today
   salesHistory?: CompletedBillRecord[]; // Array of completed bill objects [{ billId, date, amount, items, timestamp }]
+  whatsappBotEnabled?: boolean; // WhatsApp AI Bot & Refill Alert Integration
+  dailyBillLimit?: number; // Super Admin assigned daily invoice creation limit (0 = Unlimited)
+  expiryAlertDays?: number; // Expiry alerts threshold in days (e.g., 30, 60, 90 days)
 }
 
 export interface StoreDeviceSession {

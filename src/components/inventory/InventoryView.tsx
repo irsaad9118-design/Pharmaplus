@@ -46,6 +46,9 @@ import { ItemReorderForecastModal } from './ItemReorderForecastModal';
 import { InventoryReorderRadar } from './InventoryReorderRadar';
 import { AutomaticReorderAlertBanner, ReorderAlertItem } from './AutomaticReorderAlertBanner';
 import { MedicineThumbnail } from './MedicineThumbnail';
+import { DeleteMedicineConfirmModal } from './DeleteMedicineConfirmModal';
+import { EditBatchModal } from './EditBatchModal';
+import { DeleteBatchConfirmModal } from './DeleteBatchConfirmModal';
 import { findExistingInventoryMatch, deduplicateMasterInventory } from '../../utils/inventoryDeduplication';
 import { ShortageOrderItem } from '../../types/pharmacy';
 
@@ -59,6 +62,8 @@ export const InventoryView: React.FC = () => {
     updateInventoryItem, 
     updateInventoryStock, 
     deleteInventoryItem,
+    deleteBatch,
+    updateBatch,
     updateRackPosition, 
     findSubstitutes,
     getExpiryTier,
@@ -98,6 +103,11 @@ export const InventoryView: React.FC = () => {
   const [showBulkPasteModal, setShowBulkPasteModal] = useState<boolean>(false);
   const [bulkCsvText, setBulkCsvText] = useState<string>('');
   const [bulkImportSuccess, setBulkImportSuccess] = useState<string | null>(null);
+
+  // Medicine & Batch Edit/Delete Modal States
+  const [deletingMedicine, setDeletingMedicine] = useState<MedicationInventory | null>(null);
+  const [editingBatch, setEditingBatch] = useState<{ medicine: MedicationInventory; batch: InventoryBatch } | null>(null);
+  const [deletingBatch, setDeletingBatch] = useState<{ medicine: MedicationInventory; batch: InventoryBatch } | null>(null);
 
   // Quick Add Keyboard Form
   const [qaBrand, setQaBrand] = useState('');
@@ -963,10 +973,30 @@ export const InventoryView: React.FC = () => {
                           <div className="mt-2 p-2.5 bg-slate-50 dark:bg-slate-900/90 rounded-xl border border-slate-200 dark:border-slate-700 text-[11px] space-y-1.5 shadow-sm animate-in fade-in">
                             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">All Batches for this Record:</div>
                             {item.batches.map(b => (
-                              <div key={b.id} className="flex items-center justify-between gap-2 py-0.5 border-b last:border-none border-slate-200 dark:border-slate-800 font-mono">
-                                <span className="font-bold text-slate-800 dark:text-slate-200">{b.batchNumber}</span>
-                                <span className="text-slate-600 dark:text-slate-400">{b.stockQuantity} {item.unit}</span>
-                                <span className="text-[10px] text-slate-400">Exp: {b.expirationDate}</span>
+                              <div key={b.id || b.batchNumber} className="flex items-center justify-between gap-2 py-1 border-b last:border-none border-slate-200 dark:border-slate-800 font-mono">
+                                <div className="flex items-center gap-1.5">
+                                  <span className="font-bold text-slate-800 dark:text-slate-200">#{b.batchNumber}</span>
+                                  <span className="text-[10px] text-slate-400">Exp: {b.expirationDate}</span>
+                                </div>
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-slate-700 dark:text-slate-300 font-bold">{b.stockQuantity} {item.unit}</span>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEditingBatch({ medicine: item, batch: b })}
+                                    className="p-1 rounded text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                    title={`Edit batch ${b.batchNumber}`}
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingBatch({ medicine: item, batch: b })}
+                                    className="p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                                    title={`Delete batch ${b.batchNumber}`}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               </div>
                             ))}
                             <button
@@ -1115,6 +1145,17 @@ export const InventoryView: React.FC = () => {
                           >
                             <Pencil className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                             <span>Edit</span>
+                          </button>
+
+                          {/* Delete Medicine Action */}
+                          <button
+                            onClick={() => setDeletingMedicine(item)}
+                            id={`delete-medicine-btn-${item.id}`}
+                            className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/70 dark:hover:bg-rose-900 text-rose-700 dark:text-rose-300 border border-rose-300 dark:border-rose-700 text-xs font-bold transition-all flex items-center justify-center cursor-pointer shadow-xs"
+                            title="Delete medicine and all associated batches"
+                            aria-label={`Delete ${item.brandName}`}
+                          >
+                            <Trash2 className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
                           </button>
 
                         </div>
@@ -1679,21 +1720,23 @@ export const InventoryView: React.FC = () => {
                           </div>
                           <div className="flex items-center gap-2 font-mono font-bold text-slate-700 dark:text-slate-300">
                             <span>{b.stockQuantity} {formUnit}</span>
-                            {idx > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => {
-                                  const updated = formBatches.filter((_, i) => i !== idx);
-                                  setFormBatches(updated);
-                                  const totalStock = updated.reduce((s, x) => s + (Number(x.stockQuantity) || 0), 0);
-                                  setFormStock(totalStock);
-                                }}
-                                className="p-1 text-slate-400 hover:text-rose-600 transition-colors cursor-pointer"
-                                title="Remove this secondary batch"
-                              >
-                                <X className="w-3.5 h-3.5" />
-                              </button>
-                            )}
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updated = formBatches.filter((_, i) => i !== idx);
+                                setFormBatches(updated);
+                                const totalStock = updated.reduce((s, x) => s + (Number(x.stockQuantity) || 0), 0);
+                                setFormStock(totalStock);
+                                if (idx === 0 && updated.length > 0) {
+                                  setFormBatch(updated[0].batchNumber);
+                                  setFormExp(updated[0].expirationDate);
+                                }
+                              }}
+                              className="p-1 text-slate-400 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-slate-700 rounded transition-colors cursor-pointer"
+                              title="Delete this batch"
+                            >
+                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                            </button>
                           </div>
                         </div>
                       ))}
@@ -2253,6 +2296,38 @@ Volini Gel, Diclofenac Diethylamine, 30g, VOL-330, 2026-10-31, 110.00, 65.00, 45
           onToast={addToast}
         />
       )}
+
+      {/* DELETE MEDICINE CONFIRM MODAL */}
+      <DeleteMedicineConfirmModal
+        isOpen={!!deletingMedicine}
+        medicine={deletingMedicine}
+        onClose={() => setDeletingMedicine(null)}
+        onConfirm={(medicineId) => {
+          deleteInventoryItem(medicineId, false);
+        }}
+      />
+
+      {/* EDIT BATCH MODAL */}
+      <EditBatchModal
+        isOpen={!!editingBatch}
+        medicine={editingBatch?.medicine || null}
+        batch={editingBatch?.batch || null}
+        onClose={() => setEditingBatch(null)}
+        onSave={(medicineId, batchIdOrNumber, updatedBatch) => {
+          updateBatch(medicineId, batchIdOrNumber, updatedBatch);
+        }}
+      />
+
+      {/* DELETE BATCH CONFIRM MODAL */}
+      <DeleteBatchConfirmModal
+        isOpen={!!deletingBatch}
+        medicine={deletingBatch?.medicine || null}
+        batch={deletingBatch?.batch || null}
+        onClose={() => setDeletingBatch(null)}
+        onConfirm={(medicineId, batchIdOrNumber) => {
+          deleteBatch(medicineId, batchIdOrNumber);
+        }}
+      />
 
       {/* Mobile Floating + Add Medicine FAB */}
       <div className="fixed bottom-20 right-4 sm:hidden z-30">

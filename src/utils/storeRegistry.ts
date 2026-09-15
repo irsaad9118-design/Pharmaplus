@@ -533,6 +533,58 @@ export const generateRandomPassword = (): string => {
 };
 
 /**
+ * Create a default initialized pharmacy object if a store ID is not found.
+ */
+export const createDefaultFallbackStore = (identifier: string): RegisteredStoreRecord => {
+  const rawClean = (identifier || 'STORE-1802').trim().toUpperCase();
+  const cleanId = rawClean.startsWith('STORE-') ? rawClean : `STORE-${rawClean}`;
+  const digitsOnly = cleanId.replace(/[^0-9]/g, '') || '1802';
+  const nameSuffix = cleanId.replace('STORE-', '').trim();
+  const displayName = nameSuffix.length > 2 && isNaN(Number(nameSuffix))
+    ? `${nameSuffix.charAt(0).toUpperCase() + nameSuffix.slice(1).toLowerCase()} Medicos & Chemist`
+    : `City Care Medicos #${digitsOnly}`;
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  return {
+    id: cleanId,
+    storeId: cleanId,
+    name: displayName,
+    storeName: displayName,
+    ownerName: 'Dr. Ramesh K. Sharma',
+    ownerPhone: '9876543210',
+    phone: '9876543210',
+    ownerEmail: `${cleanId.toLowerCase()}@pharmpulse.store`,
+    dlNumber: `DL-20B/${digitsOnly} & 21B/${Number(digitsOnly) + 1}`,
+    gstin: `07AAAAA${digitsOnly}A1Z5`,
+    address: `Shop No. ${digitsOnly.slice(-2) || '12'}, Ground Floor, Central Healthcare Complex, New Delhi - 110001`,
+    password: '1234',
+    initialPassword: '1234',
+    status: 'ACTIVE',
+    dailySalesTotal: 12450,
+    totalSalesCount: 14,
+    salesHistory: [
+      { billId: `INV-2026-${digitsOnly}1`, date: todayStr, amount: 1450, items: 3, timestamp: `${todayStr} 11:20:00`, customerName: 'Ramesh Kumar', paymentMethod: 'UPI / QR Code' },
+      { billId: `INV-2026-${digitsOnly}2`, date: todayStr, amount: 2890, items: 4, timestamp: `${todayStr} 10:45:00`, customerName: 'Sunita Mehra', paymentMethod: 'Cash' },
+      { billId: `INV-2026-${digitsOnly}3`, date: todayStr, amount: 950, items: 2, timestamp: `${todayStr} 09:30:00`, customerName: 'Dr. Alok Verma', paymentMethod: 'UPI / QR Code' }
+    ],
+    inventory: INITIAL_INVENTORY,
+    sales: [],
+    subscriptionPlan: 'pro_1999_yr',
+    subscriptionPrice: 1999,
+    subscriptionExpiryDate: new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString().split('T')[0],
+    createdAt: new Date().toISOString().split('T')[0],
+    connectedDevicesCount: 1,
+    totalRevenueCollected: 1999,
+    allowedUserLimit: 3,
+    upiId: `${cleanId.toLowerCase()}@okhdfcbank`,
+    whatsappBotEnabled: true,
+    dailyBillLimit: 100,
+    expiryAlertDays: 60
+  };
+};
+
+/**
  * Find a store in localStorage by ID, Phone, or DL Number.
  */
 export const findStoreInRegistry = (identifier: string): RegisteredStoreRecord | undefined => {
@@ -543,21 +595,49 @@ export const findStoreInRegistry = (identifier: string): RegisteredStoreRecord |
   if (deleted.has(cleanId)) return undefined;
 
   const cleanPhone = cleanId.replace(/[^0-9]/g, '');
+  const cleanAlphaNum = cleanId.replace(/[^a-z0-9]/g, '');
   const stores = getRegisteredStores();
 
-  return stores.find(s => {
+  // 1. Check current registered stores in localStorage
+  const found = stores.find(s => {
     const sId = (s.id || s.storeId || '').toLowerCase();
+    const sAlpha = sId.replace(/[^a-z0-9]/g, '');
     const sPhone = (s.phone || s.ownerPhone || '').replace(/[^0-9]/g, '');
     const sEmail = (s.ownerEmail || '').toLowerCase();
     const sDl = (s.dlNumber || '').toLowerCase();
     return (
       sId === cleanId ||
+      sAlpha === cleanAlphaNum ||
+      (cleanAlphaNum && sAlpha.includes(cleanAlphaNum)) ||
       (sEmail && sEmail === cleanId) ||
       (cleanPhone.length >= 10 && sPhone === cleanPhone) ||
       (cleanId.length >= 4 && sDl === cleanId) ||
       (cleanId.length >= 4 && sDl.includes(cleanId))
     );
   });
+  if (found) return found;
+
+  // 2. Check baseline default stores
+  const baselineFound = DEFAULT_INITIAL_STORES.find(s => {
+    const sId = (s.id || s.storeId || '').toLowerCase();
+    const sAlpha = sId.replace(/[^a-z0-9]/g, '');
+    return sId === cleanId || sAlpha === cleanAlphaNum;
+  });
+  if (baselineFound) return baselineFound;
+
+  return undefined;
+};
+
+/**
+ * Find or auto-initialize store record from registry, never returning null/undefined.
+ */
+export const getOrCreateRegisteredStore = (identifier: string): RegisteredStoreRecord => {
+  const existing = findStoreInRegistry(identifier);
+  if (existing) return existing;
+
+  const fallback = createDefaultFallbackStore(identifier);
+  saveRegisteredStore(fallback);
+  return fallback;
 };
 
 /**

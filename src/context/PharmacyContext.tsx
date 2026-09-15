@@ -3,6 +3,7 @@ import {
   Patient, 
   Prescription, 
   MedicationInventory, 
+  InventoryBatch,
   Prescriber, 
   OutreachCampaign, 
   PointOfSaleTransaction,
@@ -145,6 +146,8 @@ interface PharmacyContextType {
   updateInventoryItem: (id: string, updates: Partial<MedicationInventory>) => void;
   updateInventoryStock: (id: string, changeQty: number, reason?: string) => void;
   deleteInventoryItem: (id: string, softArchive?: boolean) => void;
+  deleteBatch: (medicineId: string, batchIdOrNumber: string) => void;
+  updateBatch: (medicineId: string, batchIdOrNumber: string, batchUpdates: Partial<InventoryBatch>) => void;
   updateRackPosition: (id: string, rack: string, shelf: string, bin: string) => void;
   findSubstitutes: (itemOrSalt: MedicationInventory | string, excludeId?: string) => MedicationInventory[];
   lastMergeBanner: MergeBannerData | null;
@@ -260,6 +263,11 @@ export const PharmacyProvider: React.FC<{ children: ReactNode }> = ({ children }
             }
           ];
         }
+      }
+
+      // User requested: limit batches to maximum 1-2 realistic active batches
+      if (batches.length > 2) {
+        batches = batches.slice(0, 2);
       }
 
       const dynamicTotal = batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
@@ -1495,6 +1503,69 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     }).catch(() => {});
   };
 
+  const deleteBatch = (medicineId: string, batchIdOrNumber: string) => {
+    const target = inventory.find(i => i.id === medicineId);
+    if (!target) return;
+
+    const batches = target.batches || [];
+    const updatedBatches = batches.filter(
+      b => b.id !== batchIdOrNumber && b.batchNumber !== batchIdOrNumber
+    );
+
+    const newStock = updatedBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+    const nextDisplayBatch = updatedBatches.find(b => (Number(b.stockQuantity) || 0) > 0) || updatedBatches[0];
+
+    const updates: Partial<MedicationInventory> = {
+      batches: updatedBatches,
+      stockQuantity: newStock,
+      batchNumber: nextDisplayBatch ? nextDisplayBatch.batchNumber : target.batchNumber,
+      expirationDate: nextDisplayBatch ? nextDisplayBatch.expirationDate : target.expirationDate
+    };
+
+    updateInventoryItem(medicineId, updates);
+
+    addToast({
+      type: 'info',
+      title: 'Batch Deleted',
+      message: `Batch removed. Total stock for ${target.brandName} is now ${newStock} ${target.unit}.`
+    });
+  };
+
+  const updateBatch = (medicineId: string, batchIdOrNumber: string, batchUpdates: Partial<InventoryBatch>) => {
+    const target = inventory.find(i => i.id === medicineId);
+    if (!target) return;
+
+    const batches = target.batches || [];
+    const updatedBatches = batches.map(b => {
+      if (b.id === batchIdOrNumber || b.batchNumber === batchIdOrNumber) {
+        return {
+          ...b,
+          ...batchUpdates,
+          stockQuantity: batchUpdates.stockQuantity !== undefined ? Number(batchUpdates.stockQuantity) : b.stockQuantity
+        };
+      }
+      return b;
+    });
+
+    const newStock = updatedBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+    const nextDisplayBatch = updatedBatches.find(b => (Number(b.stockQuantity) || 0) > 0) || updatedBatches[0];
+
+    const updates: Partial<MedicationInventory> = {
+      batches: updatedBatches,
+      stockQuantity: newStock,
+      batchNumber: nextDisplayBatch ? nextDisplayBatch.batchNumber : target.batchNumber,
+      expirationDate: nextDisplayBatch ? nextDisplayBatch.expirationDate : target.expirationDate
+    };
+
+    updateInventoryItem(medicineId, updates);
+
+    addToast({
+      type: 'success',
+      title: 'Batch Updated',
+      message: `Batch details saved. Total available stock: ${newStock} ${target.unit}.`
+    });
+  };
+
   // Smart Stock Substitute Engine (Bioequivalent Exact Salt Matching)
   const findSubstitutes = (itemOrSalt: MedicationInventory | string, excludeId?: string): MedicationInventory[] => {
     if (!itemOrSalt) return [];
@@ -2625,6 +2696,8 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
         updateInventoryItem,
         updateInventoryStock,
         deleteInventoryItem,
+        deleteBatch,
+        updateBatch,
         updateRackPosition,
         findSubstitutes,
         lastMergeBanner,

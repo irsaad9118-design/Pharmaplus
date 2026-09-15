@@ -37,7 +37,8 @@ import {
   RotateCcw,
   Mic,
   Layers,
-  Maximize2
+  Maximize2,
+  Pencil
 } from 'lucide-react';
 import { 
   MedicationInventory, 
@@ -56,6 +57,10 @@ import { SalesReturnModal } from '../sales/SalesReturnModal';
 import { DrugInteractionChecker } from './DrugInteractionChecker';
 import { PosDrugInteractionChecker } from './PosDrugInteractionChecker';
 import { SaltSubstituteModal } from './SaltSubstituteModal';
+import { EditMedicineModal } from '../inventory/EditMedicineModal';
+import { DeleteMedicineConfirmModal } from '../inventory/DeleteMedicineConfirmModal';
+import { EditBatchModal } from '../inventory/EditBatchModal';
+import { DeleteBatchConfirmModal } from '../inventory/DeleteBatchConfirmModal';
 import { generateInvoicePdf } from '../../utils/invoicePdfGenerator';
 
 export const PosView: React.FC = () => {
@@ -83,7 +88,11 @@ export const PosView: React.FC = () => {
     doctorName,
     setDoctorName,
     isChronicPatient,
-    setIsChronicPatient
+    setIsChronicPatient,
+    updateInventoryItem,
+    deleteInventoryItem,
+    deleteBatch,
+    updateBatch
   } = usePharmacy();
 
   // Search input ref
@@ -123,6 +132,33 @@ export const PosView: React.FC = () => {
   const [isScannerOpen, setIsScannerOpen] = useState<boolean>(false);
   const [clinicalOverrideNote, setClinicalOverrideNote] = useState<string>('');
 
+  // Medicine & Batch Edit / Delete Modal State
+  const [editingMedicine, setEditingMedicine] = useState<MedicationInventory | null>(null);
+  const [deletingMedicine, setDeletingMedicine] = useState<MedicationInventory | null>(null);
+  const [editingBatch, setEditingBatch] = useState<{ medicine: MedicationInventory; batch: InventoryBatch } | null>(null);
+  const [deletingBatch, setDeletingBatch] = useState<{ medicine: MedicationInventory; batch: InventoryBatch } | null>(null);
+
+  const handleSaveEditedMedicine = (medicineId: string, updates: Partial<MedicationInventory>) => {
+    updateInventoryItem(medicineId, updates);
+  };
+
+  const handleConfirmDeleteMedicine = (medicineId: string) => {
+    handleRemoveItem(medicineId);
+    deleteInventoryItem(medicineId, false);
+  };
+
+  const handleSaveEditedBatch = (
+    medicineId: string,
+    batchIdOrNumber: string,
+    updatedBatch: { batchNumber: string; expirationDate: string; stockQuantity: number }
+  ) => {
+    updateBatch(medicineId, batchIdOrNumber, updatedBatch);
+  };
+
+  const handleConfirmDeleteBatch = (medicineId: string, batchIdOrNumber: string) => {
+    deleteBatch(medicineId, batchIdOrNumber);
+  };
+
   // Auto-focus search on user action or F2
   useEffect(() => {
     // Keep clean on initial mount
@@ -149,7 +185,7 @@ export const PosView: React.FC = () => {
   const searchResults = useMemo(() => {
     const q = (searchTerm || '').toLowerCase().trim();
     const invList = inventory || [];
-    const filtered = invList.filter(item => !item?.quarantined);
+    const filtered = invList.filter(item => !item?.quarantined && !item?.isArchived);
 
     if (!q) return filtered;
 
@@ -939,6 +975,38 @@ export const PosView: React.FC = () => {
                               {item.dosageForm}
                             </span>
                           )}
+
+                          {/* Medicine Header Controls: Edit Medicine (✏️) and Delete Medicine (🗑️) */}
+                          <div className="inline-flex items-center gap-0.5 ml-auto sm:ml-1 shrink-0" onClick={(e) => e.stopPropagation()}>
+                            <button
+                              type="button"
+                              id={`edit-medicine-header-${item.id}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setEditingMedicine(item);
+                              }}
+                              className="p-1 rounded-lg text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-teal-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                              title="Edit Medicine (Name, Salt, Rack & Bin, MRP, Unit)"
+                              aria-label={`Edit ${item.brandName}`}
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              id={`delete-medicine-header-${item.id}`}
+                              onClick={(e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                setDeletingMedicine(item);
+                              }}
+                              className="p-1 rounded-lg text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-700 transition-colors cursor-pointer"
+                              title="Delete Medicine Card and Batches"
+                              aria-label={`Delete ${item.brandName}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                           {item.offerType && item.offerType !== 'none' && (
                             <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-bold border ${
                               item.offerType === 'percentage'
@@ -991,8 +1059,47 @@ export const PosView: React.FC = () => {
                           </span>
 
                           {/* Batch Number */}
-                          <span className="font-mono text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-800">
-                            B: {item.batchNumber}
+                          <span className="font-mono text-slate-600 dark:text-slate-300 bg-slate-100 dark:bg-slate-900 px-2 py-0.5 rounded-md border border-slate-200 dark:border-slate-800 inline-flex items-center gap-1">
+                            <span>B: {item.batchNumber}</span>
+                            {/* If only 1 batch, provide quick edit/delete right here */}
+                            {(!item.batches || item.batches.length <= 1) && (
+                              <span className="inline-flex items-center ml-0.5" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const currentBatch = (item.batches && item.batches[0]) || {
+                                      id: 'batch-primary',
+                                      batchNumber: item.batchNumber,
+                                      expirationDate: item.expirationDate,
+                                      stockQuantity: item.stockQuantity
+                                    };
+                                    setEditingBatch({ medicine: item, batch: currentBatch });
+                                  }}
+                                  className="p-0.5 text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 transition-colors"
+                                  title={`Edit Batch ${item.batchNumber}`}
+                                >
+                                  <Pencil className="w-2.5 h-2.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    const currentBatch = (item.batches && item.batches[0]) || {
+                                      id: 'batch-primary',
+                                      batchNumber: item.batchNumber,
+                                      expirationDate: item.expirationDate,
+                                      stockQuantity: item.stockQuantity
+                                    };
+                                    setDeletingBatch({ medicine: item, batch: currentBatch });
+                                  }}
+                                  className="p-0.5 text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-colors"
+                                  title={`Delete Batch ${item.batchNumber}`}
+                                >
+                                  <Trash2 className="w-2.5 h-2.5" />
+                                </button>
+                              </span>
+                            )}
                           </span>
 
                           {/* Expiry Badge */}
@@ -1032,26 +1139,56 @@ export const PosView: React.FC = () => {
                               const bDays = getDaysUntilExpiry(batch.expirationDate);
                               const bInCart = cartItems.find(c => c.inventoryId === item.id && c.batchNumber === batch.batchNumber);
                               return (
-                                <button
-                                  key={batch.batchNumber}
-                                  type="button"
-                                  onClick={() => handleAddItemToCart(item, batch)}
-                                  className={`px-2 py-1 rounded-lg text-xs font-semibold border flex items-center gap-1.5 transition-all cursor-pointer ${
-                                    bInCart
-                                      ? 'bg-teal-600 text-white border-teal-600 shadow-2xs'
-                                      : 'bg-slate-50 dark:bg-slate-900 text-slate-700 dark:text-slate-300 border-slate-200 dark:border-slate-700 hover:border-teal-500'
-                                  }`}
-                                  title={`Click to add Batch ${batch.batchNumber} (Expires ${formatExpiryMonthYear(batch.expirationDate)})`}
+                                <div
+                                  key={batch.batchNumber || batch.id}
+                                  className="inline-flex items-center gap-0.5 bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-lg p-0.5"
                                 >
-                                  <span className="font-mono font-bold">#{batch.batchNumber}</span>
-                                  <span className={`text-[10px] ${bDays <= 90 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
-                                    Exp: {formatExpiryMonthYear(batch.expirationDate)}
-                                  </span>
-                                  <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold">
-                                    {batch.stockQuantity} strips
-                                  </span>
-                                  <span className="text-teal-500 font-bold ml-0.5">+</span>
-                                </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleAddItemToCart(item, batch)}
+                                    className={`px-2 py-0.5 rounded-md text-xs font-semibold flex items-center gap-1.5 transition-all cursor-pointer ${
+                                      bInCart
+                                        ? 'bg-teal-600 text-white shadow-2xs'
+                                        : 'text-slate-700 dark:text-slate-300 hover:bg-white dark:hover:bg-slate-800'
+                                    }`}
+                                    title={`Click to add Batch ${batch.batchNumber} (Expires ${formatExpiryMonthYear(batch.expirationDate)})`}
+                                  >
+                                    <span className="font-mono font-bold">#{batch.batchNumber}</span>
+                                    <span className={`text-[10px] ${bDays <= 90 ? 'text-rose-500 font-bold' : 'text-slate-400'}`}>
+                                      Exp: {formatExpiryMonthYear(batch.expirationDate)}
+                                    </span>
+                                    <span className="px-1.5 py-0.2 rounded bg-slate-200 dark:bg-slate-800 text-[10px] font-bold">
+                                      {batch.stockQuantity} strips
+                                    </span>
+                                    <span className="text-teal-500 font-bold ml-0.5">+</span>
+                                  </button>
+
+                                  {/* Batch Edit Action */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingBatch({ medicine: item, batch });
+                                    }}
+                                    className="p-1 rounded text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-slate-200 dark:hover:bg-slate-800 transition-colors"
+                                    title={`Edit batch ${batch.batchNumber}`}
+                                  >
+                                    <Pencil className="w-3 h-3" />
+                                  </button>
+
+                                  {/* Batch Delete Action */}
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDeletingBatch({ medicine: item, batch });
+                                    }}
+                                    className="p-1 rounded text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-slate-800 transition-colors"
+                                    title={`Delete batch ${batch.batchNumber}`}
+                                  >
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </div>
                               );
                             })}
                           </div>
@@ -1890,6 +2027,40 @@ export const PosView: React.FC = () => {
       <SalesReturnModal
         isOpen={isReturnModalOpen}
         onClose={() => setIsReturnModalOpen(false)}
+      />
+
+      {/* EDIT MEDICINE MODAL */}
+      <EditMedicineModal
+        isOpen={!!editingMedicine}
+        medicine={editingMedicine}
+        onClose={() => setEditingMedicine(null)}
+        onSave={handleSaveEditedMedicine}
+      />
+
+      {/* DELETE MEDICINE CONFIRM MODAL */}
+      <DeleteMedicineConfirmModal
+        isOpen={!!deletingMedicine}
+        medicine={deletingMedicine}
+        onClose={() => setDeletingMedicine(null)}
+        onConfirm={handleConfirmDeleteMedicine}
+      />
+
+      {/* EDIT BATCH MODAL */}
+      <EditBatchModal
+        isOpen={!!editingBatch}
+        medicine={editingBatch?.medicine || null}
+        batch={editingBatch?.batch || null}
+        onClose={() => setEditingBatch(null)}
+        onSave={handleSaveEditedBatch}
+      />
+
+      {/* DELETE BATCH CONFIRM MODAL */}
+      <DeleteBatchConfirmModal
+        isOpen={!!deletingBatch}
+        medicine={deletingBatch?.medicine || null}
+        batch={deletingBatch?.batch || null}
+        onClose={() => setDeletingBatch(null)}
+        onConfirm={handleConfirmDeleteBatch}
       />
 
     </div>
