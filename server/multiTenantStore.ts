@@ -2071,7 +2071,15 @@ class MultiTenantStoreManager {
 
   public updateStoreInventoryItem(storeId: string, id: string, updates: any) {
     const current = this.inventory.get(storeId) || [];
-    const updated = current.map(item => item.id === id ? { ...item, ...updates } : item);
+    const updated = current.map(item => {
+      if (item.id !== id) return item;
+      const merged = { ...item, ...updates };
+      if (merged.batches && Array.isArray(merged.batches)) {
+        merged.batches = merged.batches.filter((b: any) => (Number(b.stockQuantity) || 0) > 0);
+        merged.stockQuantity = merged.batches.reduce((sum: number, b: any) => sum + (Number(b.stockQuantity) || 0), 0);
+      }
+      return merged;
+    });
     this.inventory.set(storeId, updated);
     this.syncVersions.set(storeId, Date.now());
     return updated.find(i => i.id === id);
@@ -2092,20 +2100,54 @@ class MultiTenantStoreManager {
 
   public addStoreTransaction(storeId: string, tx: any) {
     const current = this.transactions.get(storeId) || [];
+    const invoiceNum = tx.invoiceNumber || tx.billId || `INV-2026-${Math.floor(8000 + Math.random() * 2000)}`;
+    const billGrandTotal = tx.grandTotal !== undefined 
+      ? Number(tx.grandTotal) 
+      : (tx.totalAmount !== undefined ? Number(tx.totalAmount) : 0);
+    const billDiscount = tx.discountAmount !== undefined 
+      ? Number(tx.discountAmount) 
+      : (tx.discount !== undefined ? Number(tx.discount) : 0);
+
     const newTx = {
       ...tx,
-      id: tx.id || `pos-${Date.now()}`,
-      invoiceNumber: tx.invoiceNumber || `INV-2026-${Math.floor(8000 + Math.random() * 2000)}`,
-      timestamp: tx.timestamp || new Date().toISOString().replace('T', ' ').substring(0, 19)
+      id: tx.id || tx.billId || `pos-${Date.now()}`,
+      billId: tx.billId || invoiceNum,
+      invoiceNumber: invoiceNum,
+      status: tx.status || 'COMPLETED',
+      grandTotal: billGrandTotal,
+      totalAmount: billGrandTotal,
+      discountAmount: billDiscount,
+      discount: billDiscount,
+      timestamp: tx.timestamp || tx.date || new Date().toISOString().replace('T', ' ').substring(0, 19)
     };
 
     // Deduct stock
     const inv = this.inventory.get(storeId) || [];
     if (tx.items && Array.isArray(tx.items)) {
       tx.items.forEach((it: any) => {
-        const target = inv.find(i => i.id === it.inventoryId || i.brandName === it.medicationName);
+        const target = inv.find(i => 
+          (it.medicineId && i.id === it.medicineId) ||
+          (it.inventoryId && i.id === it.inventoryId) ||
+          (it.id && i.id === it.id) ||
+          (it.name && i.brandName?.toLowerCase() === it.name.toLowerCase()) ||
+          (it.brandName && i.brandName?.toLowerCase() === it.brandName.toLowerCase()) ||
+          (it.medicationName && i.brandName?.toLowerCase() === it.medicationName.toLowerCase())
+        );
         if (target) {
-          target.stockQuantity = Math.max(0, target.stockQuantity - (it.quantity || 1));
+          const qtyToDeduct = Number(it.qty) || Number(it.quantity) || 1;
+          target.stockQuantity = Math.max(0, target.stockQuantity - qtyToDeduct);
+          if (target.batches && Array.isArray(target.batches)) {
+            const batchNo = it.batchNo || it.batchNumber;
+            const bIdx = target.batches.findIndex((b: any) => b.batchNumber === batchNo);
+            if (bIdx >= 0) {
+              target.batches[bIdx].stockQuantity = Math.max(0, (Number(target.batches[bIdx].stockQuantity) || 0) - qtyToDeduct);
+            } else if (target.batches[0]) {
+              target.batches[0].stockQuantity = Math.max(0, (Number(target.batches[0].stockQuantity) || 0) - qtyToDeduct);
+            }
+            // Auto-clean zero stock batches
+            target.batches = target.batches.filter((b: any) => (Number(b.stockQuantity) || 0) > 0);
+            target.stockQuantity = target.batches.reduce((sum: number, b: any) => sum + (Number(b.stockQuantity) || 0), 0);
+          }
         }
       });
     }
@@ -2115,9 +2157,9 @@ class MultiTenantStoreManager {
       const pats = this.patients.get(storeId) || [];
       const p = pats.find(pt => pt.id === tx.patientId);
       if (p) {
-        p.loyaltyPoints = (p.loyaltyPoints || 0) + Math.floor(tx.grandTotal / 10);
+        p.loyaltyPoints = (p.loyaltyPoints || 0) + Math.floor(billGrandTotal / 10);
         if (tx.paymentMethod?.includes('Udhaar') || tx.paymentMethod?.includes('Khata') || tx.paymentMethod?.includes('Due')) {
-          p.creditBalanceDue = (p.creditBalanceDue || 0) + tx.grandTotal;
+          p.creditBalanceDue = (p.creditBalanceDue || 0) + billGrandTotal;
         }
       }
     }
@@ -2129,13 +2171,14 @@ class MultiTenantStoreManager {
     if (store) {
       const todayStr = new Date().toISOString().split('T')[0];
       const billRecord = {
-        billId: newTx.invoiceNumber,
+        billId: newTx.invoiceNumber || newTx.billId,
         date: todayStr,
-        amount: Number(newTx.grandTotal) || 0,
+        amount: Number(newTx.grandTotal) || Number(newTx.totalAmount) || 0,
         items: Array.isArray(newTx.items) ? newTx.items.length : 1,
-        timestamp: newTx.timestamp,
-        customerName: newTx.patientName || 'Walk-in Customer',
-        paymentMethod: newTx.paymentMethod || 'Cash'
+        timestamp: newTx.timestamp || newTx.date,
+        customerName: newTx.patientName || newTx.customerName || 'Walk-in Customer',
+        paymentMethod: newTx.paymentMethod || newTx.paymentMode || 'Cash',
+        status: newTx.status || 'COMPLETED'
       };
       const existingHistory = Array.isArray(store.salesHistory) ? store.salesHistory : [];
       const updatedHistory = [billRecord, ...existingHistory.filter((b: any) => b.billId !== billRecord.billId)];

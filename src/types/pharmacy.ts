@@ -571,10 +571,30 @@ export type PaymentMode =
   | 'Due Khata' 
   | 'Credit Khata (Due)';
 
+export interface BillItemData {
+  medicineId: string;
+  name: string;
+  batchNo: string;
+  qty: number;
+  price: number;
+}
+
+export interface BillData {
+  billId: string;
+  date: string;
+  items: BillItemData[];
+  totalAmount: number;
+  discount: number;
+  status: 'COMPLETED' | 'PENDING' | 'CANCELLED' | string;
+}
+
 export interface PointOfSaleTransaction {
   id: string;
   invoiceNumber?: string;
   receiptNumber?: string;
+  billId?: string;
+  billData?: BillData;
+  status?: 'COMPLETED' | 'PENDING' | 'CANCELLED' | string;
   patientId: string;
   patientName?: string;
   customerName?: string;

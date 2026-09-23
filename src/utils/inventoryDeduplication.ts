@@ -70,19 +70,7 @@ export function isMatchingMedicine(
     }
   }
 
-  // 4. Identical Salt Composition AND Strength AND Dosage Form
-  const incomingSalt = normalizeMedName(incoming.saltComposition || incoming.genericName || '');
-  const existingSalt = normalizeMedName(existing.saltComposition || existing.genericName || '');
-
-  if (incomingSalt && existingSalt && incomingSalt.length >= 4 && incomingSalt === existingSalt) {
-    if (incomingStrength && existingStrength && incomingStrength === existingStrength) {
-      if (!incoming.dosageForm || !existing.dosageForm || incoming.dosageForm.toLowerCase() === existing.dosageForm.toLowerCase()) {
-        return true;
-      }
-    }
-  }
-
-  // 5. Valid matching NDC if present
+  // 4. Valid matching NDC if present
   if (incoming.ndc && existing.ndc && incoming.ndc !== '00000-000-00' && incoming.ndc === existing.ndc) {
     return true;
   }
@@ -231,16 +219,19 @@ export function mergeInventoryItem(
     }
   }
 
+  // Auto-remove batches with 0 stock
+  const activeBatchesWithStock = batches.filter(b => (Number(b.stockQuantity) || 0) > 0);
+  const cleanBatches = activeBatchesWithStock;
+  
   // Calculate authoritative total stock dynamically across all batches
-  const computedTotalStock = batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+  const computedTotalStock = cleanBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
   const finalStock = computedTotalStock;
 
   // Determine active display batch: prefer earliest expiring batch that still has stock > 0 (FEFO)
-  const activeBatchesWithStock = batches.filter(b => (Number(b.stockQuantity) || 0) > 0);
-  const sortedBatches = (activeBatchesWithStock.length > 0 ? activeBatchesWithStock : batches).slice().sort((a, b) => {
+  const sortedBatches = cleanBatches.slice().sort((a, b) => {
     return new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime();
   });
-  const primaryDisplayBatch = sortedBatches[0] || batches[0];
+  const primaryDisplayBatch = sortedBatches[0] || null;
 
   const mergedItem: MedicationInventory = {
     ...existing,
@@ -252,7 +243,7 @@ export function mergeInventoryItem(
     mfgDate: incoming.mfgDate?.trim() || existing.mfgDate,
     manufacturingDate: incoming.manufacturingDate?.trim() || existing.manufacturingDate,
     // Multi-batch inventory array
-    batches: batches,
+    batches: cleanBatches,
     // Update rates if specified and positive
     purchaseRate: incoming.purchaseRate !== undefined && incoming.purchaseRate > 0 ? Number(incoming.purchaseRate) : existing.purchaseRate,
     costPrice: incoming.costPrice !== undefined && incoming.costPrice > 0 ? Number(incoming.costPrice) : (incoming.purchaseRate !== undefined && incoming.purchaseRate > 0 ? Number(incoming.purchaseRate) : existing.costPrice),

@@ -466,7 +466,7 @@ export const FullScreenSearchModal: React.FC<FullScreenSearchModalProps> = ({
                           ? 'bg-amber-950 text-amber-300 border-amber-800' 
                           : 'bg-slate-950 text-slate-300 border-slate-800'
                       }`}>
-                        {isOutOfStock ? '0 (Out of Stock)' : `${item.stockQuantity} in stock`}
+                        {isOutOfStock ? 'Out of Stock (0)' : `${item.stockQuantity} in stock`}
                       </span>
                     </div>
                   </div>

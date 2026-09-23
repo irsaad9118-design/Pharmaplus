@@ -1237,7 +1237,7 @@ export const ExpiryAlertCenterView: React.FC = () => {
       <EditExpiringMedicineModal
         isOpen={!!editingMedicineItem}
         onClose={() => setEditingMedicineItem(null)}
-        item={editingMedicineItem}
+        item={editingMedicineItem ? (inventory.find(i => i.id === editingMedicineItem.id) || editingMedicineItem) : null}
         onSave={handleSaveEditedMedicine}
         onInitiateReturn={(item) => {
           setDebitNoteModalItem(item);

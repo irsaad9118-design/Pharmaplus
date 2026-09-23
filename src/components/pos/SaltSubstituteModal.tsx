@@ -119,7 +119,7 @@ export const SaltSubstituteModal: React.FC<SaltSubstituteModalProps> = ({
                   ? 'bg-rose-100 text-rose-800 dark:bg-rose-950 dark:text-rose-300 border border-rose-300 dark:border-rose-800' 
                   : 'bg-slate-200/70 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
               }`}>
-                {targetIsOutOfStock ? '0 (Out of Stock)' : `${targetItem.stockQuantity} in stock`}
+                {targetIsOutOfStock ? 'Out of Stock (0)' : `${targetItem.stockQuantity} in stock`}
               </span>
               <span className="font-mono font-bold text-slate-800 dark:text-slate-200">
                 ₹{targetItem.mrp.toFixed(2)}

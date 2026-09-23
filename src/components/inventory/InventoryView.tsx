@@ -1035,8 +1035,8 @@ export const InventoryView: React.FC = () => {
                           <span className="text-slate-500 text-[11px]">{item.unit}</span>
                         </div>
                         {isOut ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.2 rounded border border-rose-200 mt-0.5">
-                            OUT OF STOCK
+                          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-600 bg-rose-50 dark:bg-rose-950/60 dark:text-rose-300 px-1.5 py-0.2 rounded border border-rose-200 dark:border-rose-800 mt-0.5">
+                            OUT OF STOCK (0)
                           </span>
                         ) : isLow ? (
                           <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-50 px-1.5 py-0.2 rounded border border-amber-200 mt-0.5">
@@ -2302,8 +2302,8 @@ Volini Gel, Diclofenac Diethylamine, 30g, VOL-330, 2026-10-31, 110.00, 65.00, 45
         isOpen={!!deletingMedicine}
         medicine={deletingMedicine}
         onClose={() => setDeletingMedicine(null)}
-        onConfirm={(medicineId) => {
-          deleteInventoryItem(medicineId, false);
+        onConfirm={async (medicineId) => {
+          await deleteInventoryItem(medicineId, false);
         }}
       />
 

@@ -45,7 +45,8 @@ import {
   InventoryBatch,
   PosBillItem, 
   PointOfSaleTransaction, 
-  PaymentMode 
+  PaymentMode,
+  BillData 
 } from '../../types/pharmacy';
 import { AddMedicineModal } from '../modals/AddMedicineModal';
 import { CheckoutDrawer } from './CheckoutDrawer';
@@ -142,9 +143,9 @@ export const PosView: React.FC = () => {
     updateInventoryItem(medicineId, updates);
   };
 
-  const handleConfirmDeleteMedicine = (medicineId: string) => {
+  const handleConfirmDeleteMedicine = async (medicineId: string) => {
     handleRemoveItem(medicineId);
-    deleteInventoryItem(medicineId, false);
+    await deleteInventoryItem(medicineId, false);
   };
 
   const handleSaveEditedBatch = (
@@ -688,7 +689,29 @@ export const PosView: React.FC = () => {
       return null;
     }
 
+    const finalTotal = invoiceSummary.grandTotal;
+    const discountAmount = invoiceSummary.discountAmount;
+
+    // Canonical Bill Data payload
+    const billData: BillData = {
+      billId: "INV-" + Date.now(),
+      date: new Date().toISOString(),
+      items: cartItems.map(item => ({
+        medicineId: item.inventoryId || item.id || '',
+        name: item.brandName || item.medicationName || '',
+        batchNo: item.batchNumber || '',
+        qty: item.quantity,
+        price: item.sellingPrice || item.mrp || 0
+      })),
+      totalAmount: finalTotal,
+      discount: discountAmount,
+      status: 'COMPLETED'
+    };
+
     const tx = completePosTransaction({
+      billId: billData.billId,
+      billData: billData,
+      status: billData.status,
       patientId: 'walkin',
       customerName: customerName.trim() || 'Walk-in Customer',
       contactNumber: contactNumber.trim(),
@@ -696,9 +719,9 @@ export const PosView: React.FC = () => {
       items: cartItems,
       subtotal: invoiceSummary.subtotal,
       gstTotal: invoiceSummary.totalGst,
-      discountAmount: invoiceSummary.discountAmount,
+      discountAmount: discountAmount,
       roundOff: invoiceSummary.roundOff,
-      grandTotal: invoiceSummary.grandTotal,
+      grandTotal: finalTotal,
       paymentMode: paymentMode,
       cashTendered: paymentMode === 'Cash' ? cashTendered : undefined,
       changeReturned: paymentMode === 'Cash' ? cashChange : undefined,
@@ -1082,7 +1105,7 @@ export const PosView: React.FC = () => {
                               ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950 dark:text-amber-300' 
                               : 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-300 dark:border-slate-800'
                           }`}>
-                            {isOutOfStock ? '0 (Out of Stock)' : `${item.stockQuantity} in stock`}
+                            {isOutOfStock ? 'Out of Stock (0)' : `${item.stockQuantity} in stock`}
                           </span>
                         </div>
 

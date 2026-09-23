@@ -22,7 +22,8 @@ import {
   SalesReturnRecord,
   SalesReturnItem,
   BulkReminderResult,
-  BulkReminderItem
+  BulkReminderItem,
+  BillData
 } from '../types/pharmacy';
 import { 
   INITIAL_PATIENTS, 
@@ -38,6 +39,7 @@ import {
 } from '../data/initialData';
 import { useAuth } from './AuthContext';
 import confetti from 'canvas-confetti';
+import { api } from '../services/api';
 import { findExactSaltSubstitutes } from '../utils/saltSubstituteEngine';
 import { recordStoreSaleInRegistry } from '../utils/storeRegistry';
 import {
@@ -145,7 +147,8 @@ interface PharmacyContextType {
   addBulkInventoryItems: (items: (Partial<MedicationInventory> & { brandName: string })[]) => MedicationInventory[];
   updateInventoryItem: (id: string, updates: Partial<MedicationInventory>) => void;
   updateInventoryStock: (id: string, changeQty: number, reason?: string) => void;
-  deleteInventoryItem: (id: string, softArchive?: boolean) => void;
+  deleteInventoryItem: (id: string, softArchive?: boolean) => Promise<boolean>;
+  handleDeleteMedicine: (medicineId: string) => Promise<boolean>;
   deleteBatch: (medicineId: string, batchIdOrNumber: string) => void;
   updateBatch: (medicineId: string, batchIdOrNumber: string, batchUpdates: Partial<InventoryBatch>) => void;
   updateRackPosition: (id: string, rack: string, shelf: string, bin: string) => void;
@@ -170,7 +173,8 @@ interface PharmacyContextType {
   updateCampaignStatus: (id: string, status: OutreachCampaign['status']) => void;
 
   // POS / Checkout Actions
-  completePosTransaction: (transaction: Omit<PointOfSaleTransaction, 'id' | 'invoiceNumber' | 'timestamp'>) => PointOfSaleTransaction;
+  completePosTransaction: (transaction: Omit<PointOfSaleTransaction, 'id' | 'timestamp'> & { id?: string; invoiceNumber?: string; timestamp?: string }) => PointOfSaleTransaction;
+  createBill: (billData: BillData) => Promise<PointOfSaleTransaction>;
   formatWhatsAppInvoice: (tx: PointOfSaleTransaction, patientPhone?: string) => { text: string; waUrl: string };
 
   // Digital Khata Ledger & Udhaar
@@ -240,57 +244,77 @@ export const PharmacyProvider: React.FC<{ children: ReactNode }> = ({ children }
     return saved ? JSON.parse(saved) : INITIAL_PRESCRIPTIONS;
   });
 
-  const [inventory, setInventory] = useState<MedicationInventory[]>(() => {
-    const normalizeItem = (item: MedicationInventory): MedicationInventory => {
-      const initialMatch = INITIAL_INVENTORY.find(i => i.id === item.id || i.brandName.toLowerCase() === item.brandName.toLowerCase());
-      let batches = item.batches && item.batches.length > 0 ? item.batches.map(b => ({ ...b })) : [];
+  // Helper to normalize items so every medicine has 1-2 clean, realistic active batches and 0-stock batches removed
+  const normalizeInventoryItem = (item: MedicationInventory): MedicationInventory => {
+    const initialMatch = INITIAL_INVENTORY.find(
+      i => i.id === item.id || i.brandName.toLowerCase() === item.brandName.toLowerCase()
+    );
+    
+    let batches = item.batches && item.batches.length > 0 ? item.batches.map(b => ({ ...b })) : [];
 
-      // If item lacks batches or has unrealistic legacy numbers (> 200), reset to realistic retail batch structure
-      if (batches.length === 0 || batches.some(b => Number(b.stockQuantity) > 200) || item.stockQuantity > 200) {
-        if (initialMatch && initialMatch.batches && initialMatch.batches.length > 0) {
-          batches = initialMatch.batches.map(b => ({ ...b }));
-        } else {
-          const realisticStock = item.stockQuantity > 200 ? 50 : Math.max(1, item.stockQuantity || 20);
-          batches = [
-            {
-              id: `batch-${item.id}-0`,
-              batchNumber: item.batchNumber || 'BT-101',
-              expirationDate: item.expirationDate || '2027-12-31',
-              mfgDate: item.mfgDate || '2025-01-01',
-              stockQuantity: realisticStock,
-              mrp: item.mrp,
-              purchaseRate: item.purchaseRate || item.costPrice
-            }
-          ];
-        }
+    // If item lacks batches or has legacy invalid batches (>2 batches or duplicated from old deduplication)
+    if (batches.length === 0 || batches.length > 2 || batches.some(b => Number(b.stockQuantity) > 200) || item.stockQuantity > 200) {
+      if (initialMatch && initialMatch.batches && initialMatch.batches.length > 0) {
+        batches = initialMatch.batches.map(b => ({ ...b }));
+      } else {
+        const realisticStock = item.stockQuantity > 200 ? 50 : Math.max(0, item.stockQuantity || 0);
+        batches = [
+          {
+            id: `batch-${item.id}-0`,
+            batchNumber: item.batchNumber || 'BT-101',
+            expirationDate: item.expirationDate || '2027-12-31',
+            mfgDate: item.mfgDate || '2025-01-01',
+            stockQuantity: realisticStock,
+            mrp: item.mrp || 0,
+            purchaseRate: item.purchaseRate || item.costPrice || 0
+          }
+        ];
       }
+    }
 
-      // User requested: limit batches to maximum 1-2 realistic active batches
-      if (batches.length > 2) {
-        batches = batches.slice(0, 2);
+    // Auto-remove batches with 0 stock
+    batches = batches.filter(b => (Number(b.stockQuantity) || 0) > 0);
+
+    // Consolidate duplicate batch numbers within the same medicine
+    const uniqueBatches = new Map<string, InventoryBatch>();
+    for (const b of batches) {
+      const key = (b.batchNumber || '').trim().toUpperCase();
+      if (uniqueBatches.has(key)) {
+        const existing = uniqueBatches.get(key)!;
+        existing.stockQuantity = (Number(existing.stockQuantity) || 0) + (Number(b.stockQuantity) || 0);
+      } else {
+        uniqueBatches.set(key, { ...b });
       }
+    }
+    batches = Array.from(uniqueBatches.values()).slice(0, 2);
 
-      const dynamicTotal = batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
-      return {
-        ...item,
-        batches,
-        stockQuantity: dynamicTotal
-      };
+    const dynamicTotal = batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+    const sorted = batches.slice().sort((a, b) => new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime());
+    const activeBatch = sorted[0];
+
+    return {
+      ...item,
+      batches,
+      stockQuantity: dynamicTotal,
+      batchNumber: activeBatch ? activeBatch.batchNumber : (item.batchNumber || 'BT-101'),
+      expirationDate: activeBatch ? activeBatch.expirationDate : (item.expirationDate || '2027-12-31')
     };
+  };
 
+  const [inventory, setInventory] = useState<MedicationInventory[]>(() => {
     const saved = localStorage.getItem(`pharmpulse_${storeId}_inventory`);
-    if (!saved) return deduplicateMasterInventory(INITIAL_INVENTORY.map(normalizeItem));
+    if (!saved) return deduplicateMasterInventory(INITIAL_INVENTORY.map(normalizeInventoryItem));
     try {
       const parsed: MedicationInventory[] = JSON.parse(saved);
-      // Ensure newly configured reference items (e.g. Pacimol 650, Crocin 650 Advance) are available
+      // Ensure newly configured reference items are available
       const existingIds = new Set(parsed.map(i => i.id));
       const existingBrands = new Set(parsed.map(i => i.brandName.toLowerCase()));
       const missing = INITIAL_INVENTORY.filter(i => !existingIds.has(i.id) && !existingBrands.has(i.brandName.toLowerCase()));
       const combined = missing.length > 0 ? [...parsed, ...missing] : parsed;
-      const normalized = combined.map(normalizeItem);
+      const normalized = combined.map(normalizeInventoryItem);
       return deduplicateMasterInventory(normalized);
     } catch {
-      return deduplicateMasterInventory(INITIAL_INVENTORY.map(normalizeItem));
+      return deduplicateMasterInventory(INITIAL_INVENTORY.map(normalizeInventoryItem));
     }
   });
 
@@ -694,7 +718,7 @@ export const PharmacyProvider: React.FC<{ children: ReactNode }> = ({ children }
           const json = await res.json();
           if (json.data && isSubscribed) {
             if (json.data.inventory && Array.isArray(json.data.inventory)) {
-              setInventory(json.data.inventory);
+              setInventory(deduplicateMasterInventory(json.data.inventory.map(normalizeInventoryItem)));
             }
             if (json.data.transactions && Array.isArray(json.data.transactions)) {
               setTransactions(json.data.transactions);
@@ -1375,32 +1399,49 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
         updated.sellingPrice = updates.mrp;
       }
 
-      // Synchronize batches array if not explicitly provided
+      // Synchronize batches array: automatically filter out any batch whose quantity reaches 0
       if (updates.batches) {
-        updated.batches = updates.batches;
+        const cleanBatches = updates.batches.filter(b => (Number(b.stockQuantity) || 0) > 0);
+        updated.batches = cleanBatches;
+        updated.stockQuantity = cleanBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+        if (cleanBatches.length > 0) {
+          const sorted = cleanBatches.slice().sort((a, b) => new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime());
+          if (!updates.batchNumber) updated.batchNumber = sorted[0].batchNumber;
+          if (!updates.expirationDate) updated.expirationDate = sorted[0].expirationDate;
+        } else {
+          updated.stockQuantity = 0;
+        }
       } else if (item.batches && item.batches.length > 0) {
         const oldBatchNumber = item.batchNumber;
         const targetBatchIndex = item.batches.findIndex(b => b.batchNumber === oldBatchNumber);
         const activeIdx = targetBatchIndex !== -1 ? targetBatchIndex : 0;
         
-        updated.batches = item.batches.map((b, idx) => {
+        const mappedBatches = item.batches.map((b, idx) => {
           if (idx === activeIdx) {
             return {
               ...b,
               batchNumber: updates.batchNumber !== undefined ? updates.batchNumber : b.batchNumber,
               expirationDate: updates.expirationDate !== undefined ? updates.expirationDate : b.expirationDate,
-              stockQuantity: updates.stockQuantity !== undefined ? updates.stockQuantity : b.stockQuantity,
+              stockQuantity: updates.stockQuantity !== undefined ? Math.max(0, Number(updates.stockQuantity) || 0) : b.stockQuantity,
               mrp: updates.mrp !== undefined ? updates.mrp : b.mrp,
               purchaseRate: updates.purchaseRate !== undefined ? updates.purchaseRate : b.purchaseRate
             };
           }
           return b;
         });
-      }
 
-      // Dynamic Sum Calculation: Ensure stockQuantity is always exactly the sum of all available batches
-      if (updated.batches && updated.batches.length > 0) {
-        updated.stockQuantity = updated.batches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+        const cleanBatches = mappedBatches.filter(b => (Number(b.stockQuantity) || 0) > 0);
+        updated.batches = cleanBatches;
+        updated.stockQuantity = cleanBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
+        if (cleanBatches.length > 0) {
+          const sorted = cleanBatches.slice().sort((a, b) => new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime());
+          if (!updates.batchNumber) updated.batchNumber = sorted[0].batchNumber;
+          if (!updates.expirationDate) updated.expirationDate = sorted[0].expirationDate;
+        } else {
+          updated.stockQuantity = 0;
+        }
+      } else if (updates.stockQuantity !== undefined) {
+        updated.stockQuantity = Math.max(0, Number(updates.stockQuantity) || 0);
       }
 
       finalUpdatedItem = updated;
@@ -1418,6 +1459,7 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
   };
 
   const updateInventoryStock = (id: string, changeQty: number, reason?: string, batchNumber?: string) => {
+    let finalUpdatedItem: MedicationInventory | null = null;
     setInventory(prev => prev.map(item => {
       if (item.id !== id) return item;
       let updatedBatches = item.batches ? item.batches.map(b => ({ ...b })) : [];
@@ -1442,11 +1484,36 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
           };
         }
       }
-      const newStock = updatedBatches.length > 0
-        ? updatedBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0)
-        : Math.max(0, item.stockQuantity + changeQty);
-      return { ...item, stockQuantity: newStock, batches: updatedBatches };
+
+      // Auto-Delete on Zero Stock (Automatic Cleanup):
+      // Whenever a batch quantity reaches 0, automatically remove that batch from the medicine's batch list.
+      const activeBatches = updatedBatches.filter(b => (Number(b.stockQuantity) || 0) > 0);
+      const newStock = activeBatches.length > 0
+        ? activeBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0)
+        : 0;
+
+      const sorted = activeBatches.slice().sort((a, b) => new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime());
+      const nextBatch = sorted[0];
+
+      const updated = {
+        ...item,
+        stockQuantity: newStock,
+        batches: activeBatches,
+        batchNumber: nextBatch ? nextBatch.batchNumber : item.batchNumber,
+        expirationDate: nextBatch ? nextBatch.expirationDate : item.expirationDate
+      };
+      finalUpdatedItem = updated;
+      return updated;
     }));
+
+    if (finalUpdatedItem) {
+      fetch(`/api/store/${storeId}/inventory/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(finalUpdatedItem)
+      }).catch(() => {});
+    }
+
     const target = inventory.find(i => i.id === id);
     logActivity('Stock Quantity Adjusted', `Adjusted ${target?.brandName || id} by ${changeQty > 0 ? '+' : ''}${changeQty} (${reason || 'Manual Adjustment'})`, 'Inventory');
   };
@@ -1472,38 +1539,67 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     });
   };
 
-  const deleteInventoryItem = (id: string, softArchive: boolean = true) => {
-    const target = inventory.find(i => i.id === id);
-    if (!target) return;
+  const handleDeleteMedicine = async (medicineId: string): Promise<boolean> => {
+    try {
+      // 1. डेटाबेस से डिलीट करें (Delete from database first)
+      await api.deleteMedicine(medicineId, storeId);
 
-    if (softArchive) {
-      setInventory(prev => prev.map(item => {
-        if (item.id !== id) return item;
-        return {
-          ...item,
-          isArchived: true,
-          archivedAt: new Date().toISOString()
-        };
-      }));
-      logActivity('Medicine Archived', `Archived ${target.brandName} (Batch: ${target.batchNumber}) from active inventory`, 'Inventory');
-      addToast({
-        type: 'info',
-        title: 'Medicine Archived',
-        message: `${target.brandName} has been archived and removed from active inventory.`
-      });
-    } else {
-      setInventory(prev => prev.filter(item => item.id !== id));
-      logActivity('Medicine Deleted', `Permanently removed ${target.brandName} (Batch: ${target.batchNumber})`, 'Inventory');
+      // 2. डेटाबेस अपडेट होने के बाद ही UI स्टेट से हटाएं (Only remove from UI state after database confirms)
+      setInventory(prev => prev.filter(item => item.id !== medicineId));
+
+      const target = inventory.find(i => i.id === medicineId);
+      logActivity('Medicine Deleted', `Permanently removed ${target?.brandName || medicineId} from database`, 'Inventory');
       addToast({
         type: 'info',
         title: 'Medicine Deleted',
-        message: `${target.brandName} has been removed from inventory.`
+        message: `${target?.brandName || 'Medicine'} has been permanently removed from the database and inventory.`
       });
+      return true;
+    } catch (error) {
+      console.error("Delete failed in database:", error);
+      addToast({
+        type: 'error',
+        title: 'Delete Failed',
+        message: `Failed to delete medicine from database: ${error instanceof Error ? error.message : 'Unknown error'}`
+      });
+      return false;
     }
+  };
 
-    fetch(`/api/store/${storeId}/inventory/${id}`, {
-      method: 'DELETE'
-    }).catch(() => {});
+  const deleteInventoryItem = async (id: string, softArchive: boolean = true): Promise<boolean> => {
+    const target = inventory.find(i => i.id === id);
+    if (!target) return false;
+
+    if (softArchive) {
+      try {
+        await api.updateMedicine(id, { isArchived: true, archivedAt: new Date().toISOString() }, storeId);
+        setInventory(prev => prev.map(item => {
+          if (item.id !== id) return item;
+          return {
+            ...item,
+            isArchived: true,
+            archivedAt: new Date().toISOString()
+          };
+        }));
+        logActivity('Medicine Archived', `Archived ${target.brandName} (Batch: ${target.batchNumber}) from active inventory`, 'Inventory');
+        addToast({
+          type: 'info',
+          title: 'Medicine Archived',
+          message: `${target.brandName} has been archived and removed from active inventory.`
+        });
+        return true;
+      } catch (error) {
+        console.error("Archive failed in database:", error);
+        addToast({
+          type: 'error',
+          title: 'Archive Failed',
+          message: `Failed to archive ${target.brandName} in database.`
+        });
+        return false;
+      }
+    } else {
+      return handleDeleteMedicine(id);
+    }
   };
 
   const deleteBatch = (medicineId: string, batchIdOrNumber: string) => {
@@ -1513,15 +1609,16 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     const batches = target.batches || [];
     const updatedBatches = batches.filter(
       b => b.id !== batchIdOrNumber && b.batchNumber !== batchIdOrNumber
-    );
+    ).filter(b => (Number(b.stockQuantity) || 0) > 0);
 
     const newStock = updatedBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
-    const nextDisplayBatch = updatedBatches.find(b => (Number(b.stockQuantity) || 0) > 0) || updatedBatches[0];
+    const sorted = updatedBatches.slice().sort((a, b) => new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime());
+    const nextDisplayBatch = sorted[0];
 
     const updates: Partial<MedicationInventory> = {
       batches: updatedBatches,
       stockQuantity: newStock,
-      batchNumber: nextDisplayBatch ? nextDisplayBatch.batchNumber : target.batchNumber,
+      batchNumber: nextDisplayBatch ? nextDisplayBatch.batchNumber : (target.batchNumber || 'N/A'),
       expirationDate: nextDisplayBatch ? nextDisplayBatch.expirationDate : target.expirationDate
     };
 
@@ -1530,7 +1627,9 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     addToast({
       type: 'info',
       title: 'Batch Deleted',
-      message: `Batch removed. Total stock for ${target.brandName} is now ${newStock} ${target.unit}.`
+      message: updatedBatches.length === 0
+        ? `Batch removed. ${target.brandName} is now Out of Stock (0).`
+        : `Batch removed. Total stock for ${target.brandName} is now ${newStock} ${target.unit}.`
     });
   };
 
@@ -1539,24 +1638,28 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     if (!target) return;
 
     const batches = target.batches || [];
-    const updatedBatches = batches.map(b => {
+    let updatedBatches = batches.map(b => {
       if (b.id === batchIdOrNumber || b.batchNumber === batchIdOrNumber) {
         return {
           ...b,
           ...batchUpdates,
-          stockQuantity: batchUpdates.stockQuantity !== undefined ? Number(batchUpdates.stockQuantity) : b.stockQuantity
+          stockQuantity: batchUpdates.stockQuantity !== undefined ? Math.max(0, Number(batchUpdates.stockQuantity) || 0) : b.stockQuantity
         };
       }
       return b;
     });
 
+    // Auto-delete batches with 0 stock
+    updatedBatches = updatedBatches.filter(b => (Number(b.stockQuantity) || 0) > 0);
+
     const newStock = updatedBatches.reduce((sum, b) => sum + (Number(b.stockQuantity) || 0), 0);
-    const nextDisplayBatch = updatedBatches.find(b => (Number(b.stockQuantity) || 0) > 0) || updatedBatches[0];
+    const sorted = updatedBatches.slice().sort((a, b) => new Date(a.expirationDate || '2099-12-31').getTime() - new Date(b.expirationDate || '2099-12-31').getTime());
+    const nextDisplayBatch = sorted[0];
 
     const updates: Partial<MedicationInventory> = {
       batches: updatedBatches,
       stockQuantity: newStock,
-      batchNumber: nextDisplayBatch ? nextDisplayBatch.batchNumber : target.batchNumber,
+      batchNumber: nextDisplayBatch ? nextDisplayBatch.batchNumber : (target.batchNumber || 'N/A'),
       expirationDate: nextDisplayBatch ? nextDisplayBatch.expirationDate : target.expirationDate
     };
 
@@ -1565,7 +1668,9 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
     addToast({
       type: 'success',
       title: 'Batch Updated',
-      message: `Batch details saved. Total available stock: ${newStock} ${target.unit}.`
+      message: updatedBatches.length === 0
+        ? `Batch updated to 0 quantity and removed. ${target.brandName} is now Out of Stock (0).`
+        : `Batch details saved. Total available stock: ${newStock} ${target.unit}.`
     });
   };
 
@@ -1858,13 +1963,36 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
   };
 
   // POS / Counter Checkout Action
-  const completePosTransaction = (transactionData: Omit<PointOfSaleTransaction, 'id' | 'invoiceNumber' | 'timestamp'>): PointOfSaleTransaction => {
-    const newInvoiceNo = 'INV-2026-' + Math.floor(8000 + Math.random() * 2000);
+  const completePosTransaction = (transactionData: Omit<PointOfSaleTransaction, 'id' | 'timestamp'> & { id?: string; invoiceNumber?: string; timestamp?: string }): PointOfSaleTransaction => {
+    const billId = transactionData.billId || ('INV-' + Date.now());
+    const newInvoiceNo = transactionData.invoiceNumber || billId;
+    const finalTotal = transactionData.grandTotal;
+    const discountAmount = transactionData.discountAmount || 0;
+
+    // Canonical billData format
+    const canonicalBillData: BillData = transactionData.billData || {
+      billId: billId,
+      date: new Date().toISOString(),
+      items: (transactionData.items || []).map(item => ({
+        medicineId: item.inventoryId || item.id || '',
+        name: item.brandName || item.medicationName || '',
+        batchNo: item.batchNumber || '',
+        qty: item.quantity,
+        price: item.sellingPrice || item.mrp || item.unitPrice || 0
+      })),
+      totalAmount: finalTotal,
+      discount: discountAmount,
+      status: (transactionData.status as any) || 'COMPLETED'
+    };
+
     const newTx: PointOfSaleTransaction = {
       ...transactionData,
       id: 'pos-' + Date.now(),
+      billId: billId,
+      billData: canonicalBillData,
+      status: transactionData.status || 'COMPLETED',
       invoiceNumber: newInvoiceNo,
-      receiptNumber: 'REC-' + newInvoiceNo.split('-')[2],
+      receiptNumber: 'REC-' + (newInvoiceNo.includes('-') ? newInvoiceNo.split('-').slice(1).join('-') : newInvoiceNo),
       timestamp: new Date().toISOString().replace('T', ' ').substring(0, 19),
       cashierName: currentPharmacist.split(',')[0],
       pharmacistStaff: currentPharmacist
@@ -1961,6 +2089,49 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
       message: `Invoice ${newInvoiceNo} generated (₹${newTx.grandTotal.toFixed(2)}). Inventory stock updated.`
     });
     return newTx;
+  };
+
+  // Direct Bill Creation from canonical billData structure
+  const createBill = async (billData: BillData): Promise<PointOfSaleTransaction> => {
+    // 1. Sync bill to backend database
+    try {
+      await api.createBill(billData, storeId);
+    } catch (err) {
+      console.error("Save bill failed in database:", err);
+    }
+
+    // 2. Complete POS local state & stock updates
+    const tx = completePosTransaction({
+      billId: billData.billId,
+      billData: billData,
+      status: billData.status,
+      invoiceNumber: billData.billId,
+      patientId: 'walkin',
+      customerName: 'Walk-in Customer',
+      contactNumber: '',
+      doctorName: 'Self / Direct',
+      items: billData.items.map(it => {
+        const found = inventory.find(inv => inv.id === it.medicineId || inv.brandName.toLowerCase() === it.name.toLowerCase());
+        return {
+          inventoryId: it.medicineId,
+          brandName: it.name,
+          batchNumber: it.batchNo,
+          quantity: it.qty,
+          sellingPrice: it.price,
+          unitPrice: it.price,
+          totalPrice: it.price * it.qty,
+          gstRate: found?.gstRate || 12,
+          gstAmount: Math.round(((it.price * it.qty) * ((found?.gstRate || 12) / 100)) * 100) / 100,
+          rackLocation: found?.locationShelf || 'A-1'
+        };
+      }),
+      subtotal: Math.round((billData.totalAmount + billData.discount) * 100) / 100,
+      discountAmount: billData.discount,
+      grandTotal: billData.totalAmount,
+      paymentMode: 'Cash'
+    });
+
+    return tx;
   };
 
   // WhatsApp Bill / Receipt Dispatcher
@@ -2699,6 +2870,7 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
         updateInventoryItem,
         updateInventoryStock,
         deleteInventoryItem,
+        handleDeleteMedicine,
         deleteBatch,
         updateBatch,
         updateRackPosition,
@@ -2720,6 +2892,7 @@ Stay healthy and take care!${customNote ? `\n\n*Note:* ${customNote}` : ''}`;
         updateCampaignStatus,
 
         completePosTransaction,
+        createBill,
         formatWhatsAppInvoice,
 
         // Digital Khata & Udhaar
